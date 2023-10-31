@@ -99,19 +99,17 @@ class EDA:
         model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
         model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.y_test),
                 verbose=2, shuffle=False)
-        model.save('./model/LSTM_Model.h5')
+        torch.save(model,'./model/LSTM_Model.pth')
 
         return model
 
     def TestingModel(self, model):
         predictions = model.predict(self.X_test, verbose=0)
-        #print(predictions.shape)
         y_scaler = load(open('./static/y_scaler.pkl', 'rb'))
         rescaled_real_y = y_scaler.inverse_transform(self.y_test)
         rescaled_predicted_y = y_scaler.inverse_transform(predictions)
 
-        #return rescaled_predicted_y, rescaled_real_y, self.index_test
-        return self.X_test
+        return rescaled_predicted_y, rescaled_real_y, self.index_test
     
     def CNN_Model(self,input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
         model = tf.keras.Sequential()
