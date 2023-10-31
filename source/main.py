@@ -8,6 +8,7 @@ import numpy as np
 from EDA import EDA
 import streamlit as st
 import plotly.graph_objs as go
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, SimpleRNN, GRU, LSTM
@@ -117,10 +118,7 @@ with col4:
 default_value = 0.0001
 learning_rate = st.sidebar.number_input("**Learning Rate**", value=default_value, step=0.00005, min_value=0.0001, format="%.5f")
 
-# Chọn cột dự đoán & activation function
 
-selected_predict_column_name = st.sidebar.selectbox(
-    '**Chọn cột để dự đoán:**', ('Price', 'Open', 'High', 'Low', 'Vol'), on_change=ClearCache)
 
 activation = st.sidebar.selectbox(
     '**Chọn Activation funcion**', ('ReLU', 'Sigmoid', 'Tanh'), on_change=ClearCache)
@@ -131,12 +129,19 @@ st.header("Dữ liệu")
 uploaded_file = st.file_uploader(
     "Chọn tệp dữ liệu", type=["csv"], on_change=ClearCache)
 
+
+
+
 if uploaded_file is not None:
     file_name = uploaded_file.name
     df = LoadData(uploaded_file)
 
+    # Chọn cột dự đoán & activation function
+
+    selected_predict_column_name = st.sidebar.selectbox(
+        '**Chọn cột để dự đoán:**', tuple(df.drop("Date",axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature = selected_predict_column_name, split_ratio = split_ratio)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -194,3 +199,20 @@ if uploaded_file is not None:
             metrics=Score(predict,actual)
             
             st.table(metrics)
+
+
+            # trace1 = go.Scatter(x=eda.data_old.index ,y=eda.data_old[selected_column_name], mode='lines', name='Thực tế')
+            # trace2 = go.Scatter(x=index ,y=predict, mode='lines', name='Dự đoán')
+
+            # layout = go.Layout(
+            #     title='Biểu đồ giá cổ phiếu',
+            #     xaxis=dict(title='Ngày'),
+            #     yaxis=dict(title='Giá cổ phiếu'),
+            #     hovermode='closest'
+            # )
+
+            # fig = go.Figure(data=[trace1,trace2], layout=layout)
+            
+            # fig.update_layout()  # Kích thước tùy chỉnh 800x400
+
+            # st.plotly_chart(fig)

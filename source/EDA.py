@@ -21,20 +21,23 @@ class EDA:
     def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio ):
         self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.yc_train, self.yc_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio)
 
-    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature='Price', split_ratio = 0.8):
+    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8):
+        
         data = data.dropna()
-        data['Price'] = data['Price'].str.replace(',', '', regex=True).astype(float)
-        data['Open'] = data['Open'].str.replace(',', '', regex=True).astype(float)
-        data['High'] = data['High'].str.replace(',', '', regex=True).astype(float)
-        data['Low'] = data['Low'].str.replace(',', '', regex=True).astype(float)
-        data['Vol'] = data['Vol'].str.replace('K', 'e3').str.replace('M', 'e6').map(pd.eval).astype(int)
+        column_names = tuple(data.drop("Date",axis = 1).columns.values)
+        for column in column_names:
+            data[column] = data[column].fillna('0').astype(str).str.replace(',', '').str.replace('K', 'e3').str.replace('M', 'e6').str.replace('%', 'e-2').map(lambda x: pd.eval(x) if x != 'nan' else np.nan).astype(float)
+        # data['Price'] = data['Price'].str.replace(',', '', regex=True).astype(float)
+        # data['Open'] = data['Open'].str.replace(',', '', regex=True).astype(float)
+        # data['High'] = data['High'].str.replace(',', '', regex=True).astype(float)
+        # data['Low'] = data['Low'].str.replace(',', '', regex=True).astype(float)
+     
         data['Date'] = pd.to_datetime(data['Date'])
         data = data.sort_values(by='Date')
         data.set_index('Date', inplace=True)
-        data = data.drop('Change %', axis=1)
         data_old = data
         X_value = data[[feature]]
-        y_value = data[['Price']]
+        y_value = data[[column_names[0]]]
 
         X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value)
         n_features = X_value.shape[1]
