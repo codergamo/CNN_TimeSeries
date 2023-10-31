@@ -39,7 +39,7 @@ degree = None
 unit = None
 epoch= None
 batch_size = None
-w = None
+m = None
 scaler = None
 test_size = None
 train = None
@@ -171,26 +171,26 @@ if uploaded_file is not None:
         with st.spinner('Đang tiến hành training...'):
             start_time = time.time()
             if model == 'CNN':
-                w = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
             if model == 'LSTM':
-                w = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
 
             train_time = "{:.2f}".format(time.time() - start_time)
 
             st.session_state.train_time = train_time
-            st.session_state.w = w
+            st.session_state.m = m
 
-            #predict, actual, index = eda.TestingModel(w)
+            predict, actual, index = eda.TestingModel(m)
             st.write("Training Complete!")
-     #       Plot(predict, actual, index, model)
-            test = eda.TestingModel(w)
-            st.write(test.shape)
 
-        
-        
-            # result_test_table = pd.DataFrame(
-            #     {"Dự đoán": predict.tolist(), "Thực tế": actual.tolist()})
+            #Kiểm tra kết quả dự đoán và thực tế 
+            result_test_table = pd.DataFrame(
+                {"Dự đoán": predict.tolist(), "Thực tế": actual.tolist()})
 
-            # st.session_state.result_table = result_table
+            st.session_state.result_table = result_table
 
-            # st.table(result_test_table[:10])    
+            st.table(result_test_table[:10])    
+
+            metrics=Score(predict,actual)
+            
+            st.table(metrics)
