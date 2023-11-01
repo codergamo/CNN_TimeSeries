@@ -1,14 +1,15 @@
 import time
 import os
 import xlwings as xlw
+import math 
 import win32com.client
 import openpyxl as ox
 import pandas as pd
 import numpy as np
 from EDA import EDA
+from Multiple_Lines import MultipleLines
 import streamlit as st
 import plotly.graph_objs as go
-import matplotlib.pyplot as plt
 import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, SimpleRNN, GRU, LSTM
@@ -16,8 +17,8 @@ from keras.callbacks import Callback
 from streamlit.logger import get_logger
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, make_scorer
 from sklearn.model_selection import cross_val_score
 
 
@@ -64,6 +65,29 @@ def LoadData(uploaded_file):
     df = pd.read_csv(uploaded_file)
     return df
 
+def CV_RMSE(predict, actual):
+    # Số lượng fold (chẳng hạn, 5-fold cross-validation)
+    num_folds = 5
+
+    # Khởi tạo K-fold cross-validation
+    kf = KFold(n_splits=num_folds)
+
+    # Tạo danh sách để lưu kết quả RMSE từ từng fold
+    rmse_scores = []
+
+    for train_index, test_index in kf.split(actual):
+        actual_train, actual_test = actual[train_index], actual[test_index]
+        predicted_train, predicted_test = predict[train_index], predict[test_index]
+        
+        mse = mean_squared_error(actual_test, predicted_test)
+        rmse = math.sqrt(mse)
+        
+        rmse_scores.append(rmse)
+
+    # Tính tổng RMSE từ các fold và tính RMSE trung bình
+    average_rmse = np.mean(rmse_scores)
+    return average_rmse
+
 # Hàm đánh giá
 @st.cache_data
 def Score(predict, actual):
@@ -71,18 +95,23 @@ def Score(predict, actual):
     mse = mean_squared_error(actual, predict)
     rmse = np.sqrt(mse)
     mape = mean_absolute_percentage_error(actual, predict)
+    cv_rmse = CV_RMSE(predict, actual)
 
     metrics = {
         "MAE": mae,
         "MSE": mse,
         "RMSE": rmse,
-        "MAPE": mape
+        "MAPE": mape,
+        "CV-RMSE": cv_rmse
     }
     return metrics
 
 # Xóa dữ liệu lưu trong streamlit
 def ClearCache():
     st.session_state.clear()
+
+
+
 
 # Sidebar
 # Chọn mô hình
@@ -130,18 +159,17 @@ uploaded_file = st.file_uploader(
     "Chọn tệp dữ liệu", type=["csv"], on_change=ClearCache)
 
 
-
-
 if uploaded_file is not None:
     file_name = uploaded_file.name
     df = LoadData(uploaded_file)
+
 
     # Chọn cột dự đoán & activation function
 
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop("Date",axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature = selected_predict_column_name, split_ratio = split_ratio)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -152,27 +180,16 @@ if uploaded_file is not None:
 
     column_names = eda.data_old.columns.tolist()
     selected_column_name = st.selectbox("**Chọn cột:**", column_names)
-    trace = go.Scatter(x=eda.data_old.index ,y=eda.data_old[selected_column_name], mode='lines', name='Giá cổ phiếu')
-
-    layout = go.Layout(
-        title='Biểu đồ giá cổ phiếu',
-        xaxis=dict(title='Ngày'),
-        yaxis=dict(title='Giá cổ phiếu'),
-        hovermode='closest'
-    )
-
-    fig = go.Figure(data=[trace], layout=layout)
-    
-    fig.update_layout()  # Kích thước tùy chỉnh 800x400
-
+    fig = MultipleLines.OneLine(eda, selected_column_name)
     st.plotly_chart(fig)
 
     df_target = df[selected_column_name]
 
     # Training
-    st.divider()
-    st.header("Huấn Luyện Mô Hình")
-    if st.button('Train Model', type="primary"):
+    
+    if st.sidebar.button('Train Model', type="primary"):
+        st.divider()
+        st.header("Huấn Luyện Mô Hình")
         with st.spinner('Đang tiến hành training...'):
             start_time = time.time()
             if model == 'CNN':
@@ -184,8 +201,8 @@ if uploaded_file is not None:
 
             st.session_state.train_time = train_time
             st.session_state.m = m
-
-            predict, actual, index = eda.TestingModel(m)
+            
+            predict, actual, index, predict_scale, actua_scale = eda.TestingModel(m)
             st.write("Training Complete!")
 
             #Kiểm tra kết quả dự đoán và thực tế 
@@ -196,23 +213,22 @@ if uploaded_file is not None:
 
             st.table(result_test_table[:10])    
 
-            metrics=Score(predict,actual)
+            metrics=Score(predict_scale,actua_scale)
             
             st.table(metrics)
 
-
-            # trace1 = go.Scatter(x=eda.data_old.index ,y=eda.data_old[selected_column_name], mode='lines', name='Thực tế')
-            # trace2 = go.Scatter(x=index ,y=predict, mode='lines', name='Dự đoán')
-
-            # layout = go.Layout(
-            #     title='Biểu đồ giá cổ phiếu',
-            #     xaxis=dict(title='Ngày'),
-            #     yaxis=dict(title='Giá cổ phiếu'),
-            #     hovermode='closest'
-            # )
-
-            # fig = go.Figure(data=[trace1,trace2], layout=layout)
+            mline = MultipleLines.MultipLines(predict,actual, index)
             
-            # fig.update_layout()  # Kích thước tùy chỉnh 800x400
+            st.plotly_chart(mline)
+            
+            if st.sidebar.button('Lưu dữ liệu CSV', type="secondary"):
+                csv = pd.DataFrame(
+                {"Dự đoán": predict.tolist(), "Thực tế": actual.tolist(), "Ngày": index.tolist()})
+                csv.to_csv('.\output\data.csv')
+                st.sidebar.success("Xuất dữ liệu thành công!!")
+                
 
-            # st.plotly_chart(fig)
+       
+            
+            
+            

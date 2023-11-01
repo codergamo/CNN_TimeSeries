@@ -19,12 +19,13 @@ import os
 class EDA:
 
     def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio ):
-        self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.yc_train, self.yc_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio)
+          self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio)
+        # self.yc_train, self.yc_test,
 
     def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8):
         
         data = data.dropna()
-        column_names = tuple(data.drop("Date",axis = 1).columns.values)
+        column_names = tuple(data.drop(data.columns[0], axis=1).columns.values)
         for column in column_names:
             data[column] = data[column].fillna('0').astype(str).str.replace(',', '').str.replace('K', 'e3').str.replace('M', 'e6').str.replace('%', 'e-2').map(lambda x: pd.eval(x) if x != 'nan' else np.nan).astype(float)
         # data['Price'] = data['Price'].str.replace(',', '', regex=True).astype(float)
@@ -32,22 +33,22 @@ class EDA:
         # data['High'] = data['High'].str.replace(',', '', regex=True).astype(float)
         # data['Low'] = data['Low'].str.replace(',', '', regex=True).astype(float)
      
-        data['Date'] = pd.to_datetime(data['Date'])
-        data = data.sort_values(by='Date')
-        data.set_index('Date', inplace=True)
+        data[data.columns[0]] = pd.to_datetime(data[data.columns[0]])
+        data = data.sort_values(by=data.columns[0])
+        data.set_index(data.columns[0], inplace=True)
         data_old = data
         X_value = data[[feature]]
         y_value = data[[column_names[0]]]
 
         X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value)
-        n_features = X_value.shape[1]
-        X, y, yc = self.get_X_y(X_scale_dataset, y_scale_dataset, n_steps_in, n_steps_out)
+        # n_features = X_value.shape[1]
+        X, y = self.get_X_y(X_scale_dataset, y_scale_dataset, n_steps_in, n_steps_out)
         X_train, X_test, = self.split_train_test(X, split_ratio)
         y_train, y_test, = self.split_train_test(y, split_ratio)
-        yc_train, yc_test, = self.split_train_test(yc, split_ratio)
+        # yc_train, yc_test, = self.split_train_test(yc, split_ratio)
         index_train, index_test, = self.predict_index(data, X_train, n_steps_in, n_steps_out)
 
-        return data, data_old, X_train, X_test, y_train, y_test, yc_train, yc_test, index_train, index_test
+        return data, data_old, X_train, X_test, y_train, y_test, index_train, index_test
 
 
     def normalize_data(self, X_value, y_value):
@@ -65,19 +66,20 @@ class EDA:
     def get_X_y(self, X_data, y_data, n_steps_in, n_steps_out):
         X = list()
         y = list()
-        yc = list()
+        # yc = list()
 
         length = len(X_data)
         for i in range(0, length, 1):
             X_value = X_data[i: i + n_steps_in][:, :]
             y_value = y_data[i + n_steps_in: i + (n_steps_in + n_steps_out)][:, 0]
-            yc_value = y_data[i: i + n_steps_in][:, :]
+            # yc_value = y_data[i: i + n_steps_in][:, :]
             if len(X_value) == n_steps_in and len(y_value) == n_steps_out:
                 X.append(X_value)
                 y.append(y_value)
-                yc.append(yc_value)
+                # yc.append(yc_value)
 
-        return np.array(X), np.array(y), np.array(yc)
+        return np.array(X), np.array(y)
+    # , np.array(yc)
 
 
     def split_train_test(self, data, split_ratio = 0.8):
@@ -112,7 +114,7 @@ class EDA:
         rescaled_real_y = y_scaler.inverse_transform(self.y_test)
         rescaled_predicted_y = y_scaler.inverse_transform(predictions)
 
-        return rescaled_predicted_y, rescaled_real_y, self.index_test
+        return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
     def CNN_Model(self,input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
         model = tf.keras.Sequential()
