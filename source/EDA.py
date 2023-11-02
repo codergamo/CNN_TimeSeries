@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from tensorflow.keras.layers import Dense, LSTM, Conv1D, LeakyReLU, Flatten, MaxPooling1D
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
@@ -18,11 +18,11 @@ import os
 
 class EDA:
 
-    def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio ):
-          self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio)
+    def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio, scaler):
+          self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio, scaler)
         # self.yc_train, self.yc_test,
 
-    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8):
+    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8, scaler = 'MinMax Scaler'):
         
         data = data.dropna()
         column_names = tuple(data.drop(data.columns[0], axis=1).columns.values)
@@ -40,7 +40,7 @@ class EDA:
         X_value = data[[feature]]
         y_value = data[[column_names[0]]]
 
-        X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value)
+        X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value, scaler)
         # n_features = X_value.shape[1]
         X, y = self.get_X_y(X_scale_dataset, y_scale_dataset, n_steps_in, n_steps_out)
         X_train, X_test, = self.split_train_test(X, split_ratio)
@@ -51,9 +51,13 @@ class EDA:
         return data, data_old, X_train, X_test, y_train, y_test, index_train, index_test
 
 
-    def normalize_data(self, X_value, y_value):
-        X_scaler = MinMaxScaler()
-        y_scaler = MinMaxScaler()
+    def normalize_data(self, X_value, y_value, scaler = 'MinMax Scaler'):
+        if scaler == 'MinMax Scaler':
+            X_scaler = MinMaxScaler()
+            y_scaler = MinMaxScaler()
+        elif scaler == 'Standard Scaler':
+            X_scaler = StandardScaler()
+            y_scaler = MinMaxScaler()
         X_scaler.fit(X_value)
         y_scaler.fit(y_value)
         dump(X_scaler, open('./static/X_scaler.pkl', 'wb'))
@@ -116,17 +120,25 @@ class EDA:
 
         return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
-    def CNN_Model(self,input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
+    def CNN_Model(self,input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001, feature_step=1 ) -> tf.keras.models.Model:
         model = tf.keras.Sequential()
         model.add(Conv1D(8, input_shape=(input_dim, feature_size), kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(Conv1D(16, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(32, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(64, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(128, kernel_size=1, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+
+        for i in range (2,feature_step):
+            if(i>=5):
+                model.add(Conv1D(8*(2**(i-1)), kernel_size=1, strides=1, padding='same', activation=activation))
+                model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            else:
+                model.add(Conv1D(8*(2**(i-1)), kernel_size=3, strides=1, padding='same', activation=activation))
+                model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            
+            # model.add(Conv1D(32, kernel_size=3, strides=1, padding='same', activation=activation))
+            # model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            # model.add(Conv1D(64, kernel_size=3, strides=1, padding='same', activation=activation))
+            # model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            # model.add(Conv1D(128, kernel_size=1, strides=1, padding='same', activation=activation))
+            # model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            
         model.add(Flatten())
         model.add(Dense(220, use_bias=True))
         model.add(LeakyReLU())

@@ -1,7 +1,9 @@
 import time
 import os
+import io
 import xlwings as xlw
 import math 
+import xlsxwriter
 import win32com.client
 import openpyxl as ox
 import pandas as pd
@@ -76,8 +78,7 @@ def CV_RMSE(predict, actual):
     rmse_scores = []
 
     for train_index, test_index in kf.split(actual):
-        actual_train, actual_test = actual[train_index], actual[test_index]
-        predicted_train, predicted_test = predict[train_index], predict[test_index]
+        predicted_test, actual_test = predict[test_index], actual[test_index]
         
         mse = mean_squared_error(actual_test, predicted_test)
         rmse = math.sqrt(mse)
@@ -87,6 +88,21 @@ def CV_RMSE(predict, actual):
     # Tính tổng RMSE từ các fold và tính RMSE trung bình
     average_rmse = np.mean(rmse_scores)
     return average_rmse
+
+def to_excel(df):
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine='xlsxwriter')
+    df.to_excel(writer, index=False, sheet_name='Sheet1')
+    workbook = writer.book
+    worksheet = writer.sheets['Sheet1']
+    format1 = workbook.add_format({'num_format': '0.00'}) 
+    worksheet.set_column('A:A', None, format1)  
+    writer.close()
+    processed_data = output.getvalue()
+    st.download_button(label='📥 Download Current Result',
+                                data=processed_data,
+                                file_name= 'report.xlsx')
+    # return processed_data
 
 # Hàm đánh giá
 @st.cache_data
@@ -135,13 +151,18 @@ train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 90, 80, step=10)
 split_ratio = train_size/100
 
 # Chọn SL Epoch & SL Batch Size
-col3, col4 = st.sidebar.columns(2)
+col3, col4, col5 = st.sidebar.columns(3)
 with col3:
     epochs = st.number_input(
         '**Epoch**', value=50, step=1, min_value=1, on_change=ClearCache)
 with col4:
     batch_size = st.number_input(
         '**Batch Size**', value=32, step=1, min_value=1, on_change=ClearCache)
+with col5:
+    feature_step = st.number_input(
+        '**Feature_Loop**', value=1, step=1, min_value=1, on_change=ClearCache)
+
+
 
 # Chọn tốc độ học
 default_value = 0.0001
@@ -152,6 +173,9 @@ learning_rate = st.sidebar.number_input("**Learning Rate**", value=default_value
 activation = st.sidebar.selectbox(
     '**Chọn Activation funcion**', ('ReLU', 'Sigmoid', 'Tanh'), on_change=ClearCache)
 
+
+scaler = st.sidebar.selectbox(
+    '**Chọn phương pháp chuẩn hóa dữ liệu**', ('MinMax Scaler', 'Standard Scaler'), on_change=ClearCache)
 
 # Chọn tập dữ liệu
 st.header("Dữ liệu")
@@ -169,7 +193,7 @@ if uploaded_file is not None:
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop("Date",axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio, scaler = scaler)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -193,7 +217,7 @@ if uploaded_file is not None:
         with st.spinner('Đang tiến hành training...'):
             start_time = time.time()
             if model == 'CNN':
-                m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate, feature_step = feature_step)
             if model == 'LSTM':
                 m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
 
@@ -221,11 +245,8 @@ if uploaded_file is not None:
             
             st.plotly_chart(mline)
             
-            if st.sidebar.button('Lưu dữ liệu CSV', type="secondary"):
-                csv = pd.DataFrame(
-                {"Dự đoán": predict.tolist(), "Thực tế": actual.tolist(), "Ngày": index.tolist()})
-                csv.to_csv('.\output\data.csv')
-                st.sidebar.success("Xuất dữ liệu thành công!!")
+
+            to_excel(result_test_table)
                 
 
        
