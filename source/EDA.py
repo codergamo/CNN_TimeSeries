@@ -65,9 +65,10 @@ class EDA:
             y_scaler = StandardScaler()
 
         else:
-            # Khởi tạo trình tạo FunctionTransformer
             X_scaler = StandardScaler()
             y_scaler = StandardScaler()
+            # Khởi tạo trình tạo FunctionTransformer
+            # return X_value
             
         X_scaler.fit(X_value)
         y_scaler.fit(y_value)
