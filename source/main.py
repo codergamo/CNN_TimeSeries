@@ -6,7 +6,8 @@ import math
 import torch
 import xlsxwriter
 import win32com.client
-import openpyxl as ox
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import numpy as np
 from EDA import EDA
@@ -26,6 +27,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import KFold
 from kerastuner.tuners import RandomSearch
 import xlsxwriter
+from openpyxl.styles import Font
 
 
 st.set_page_config(page_title="Forecast Time Series",page_icon=":bar_chart:",layout="centered")
@@ -94,14 +96,22 @@ def CV_RMSE(predict, actual):
     average_rmse = np.mean(rmse_scores)
     return average_rmse
 
+# Function to save all dataframes to one single excel
+
 def to_excel(df):
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, index=False, sheet_name='Sheet1')
+    df[0].to_excel(writer, index=False, sheet_name='Result Test')
+    df[1].to_excel(writer, index=False, sheet_name='Metrics')
     workbook = writer.book
-    worksheet = writer.sheets['Sheet1']
+    worksheet1 = writer.book
+    worksheet = writer.sheets['Result Test']
+    worksheet1 = writer.sheets['Metrics']
+
     format1 = workbook.add_format({'num_format': '0.00'}) 
-    worksheet.set_column('A:A', None, format1)  
+
+    worksheet.set_column('A:A', None, format1) 
+    worksheet1.set_column('A:A', None, format1) 
     writer.close()
     processed_data = output.getvalue()
     st.download_button(label='📥 Download Current Result',
@@ -117,14 +127,7 @@ def Score(predict, actual):
     rmse = np.sqrt(mse)
     mape = mean_absolute_percentage_error(actual, predict)
     cv_rmse = CV_RMSE(predict,actual)
-    metrics = {
-        "MAE": mae,
-        "MSE": mse,
-        "RMSE": rmse,
-        "MAPE": mape,
-        "CV_RMSE": cv_rmse
-    }
-    return metrics
+    return mae, mse, rmse ,mape ,cv_rmse
 #Tính CV_RMSE
 @st.cache_data
 def CV_RMSE(predict,actual):
@@ -144,6 +147,18 @@ def CV_RMSE(predict,actual):
 # Xóa dữ liệu lưu trong streamlit
 def ClearCache():
     st.session_state.clear()
+
+def dfs_tabs(df_list, sheet_list):
+
+    output = io.BytesIO()
+
+    writer = pd.ExcelWriter(output,engine='xlsxwriter')   
+    for dataframe, sheet in zip(df_list, sheet_list):
+        dataframe.to_excel(writer, sheet_name=sheet, startrow=0 , startcol=0)   
+    writer.close()
+
+    processed_data = output.getvalue()
+    return processed_data
 
 def to_excel(df):
     output = io.BytesIO()
@@ -224,36 +239,41 @@ uploaded_file = st.file_uploader(
     "Chọn tệp dữ liệu", type=["csv"], on_change=ClearCache)
 
 
-def training_model(feature_step, start_time, train_time, m, rmse_traning, feature_hyper):
-    st.write(f"Số lớp ẩn: {feature_step}")
-    train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
-    st.write(f"Thời gian huấn luyện {train_time}ms")
-    st.session_state.train_time = train_time
-    
-        
+# Tìm ra thông số cho mô hình train có số lỗi rmse nhỏ nhất và lưu vào thư mục
+def hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train):  
+
+    # Test model --> Trả về giá trị dự đoán-thực tế rescale , ngày, giá trị dự đoán - thực tế scale
     predict, actual, index, predict_scale, actua_scale = eda.TestingModel(m)
 
-    mse = mean_squared_error(actua_scale, predict_scale)
-    rmse = np.sqrt(mse)
+    mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
+    # Thực hiện tính lỗi với mỗi giá trị đã được scale
 
-    if rmse < rmse_traning:
-        rmse_traning = rmse
+    rmse_loop.append(rmse)
+    feature_train.append(feature_step)
+
+    # Nếu giá trị rmse cũ lớn hơn rmse hiện tại thì lưu giá trị hiện tại
+    if rmse < rmse_min:
+        rmse_min = rmse
         feature_hyper = feature_step
+        # Lưu model vào state hiện tại
         st.session_state.m = m
-        torch.save(m,"./model/CNN_Model.pth")
 
-    st.write("MSE:", mse)
-    st.write("RMSE:", rmse)
+        #Lưu các paramter vào file CNN_Model.pth
+        torch.save({
+        'model': m,
+        'epochs': epochs,
+        'batch_size': batch_size,
+        'feature_loop': feature_hyper
+        }, "./model/CNN_Model.pth")
 
-    return predict, actual, index, predict_scale, actua_scale, rmse_traning, feature_hyper
+    # Trả về giá trị dự đoán-thực tế rescale , ngày, giá trị dự đoán - thực tế scale, rmse nhỏ nhất và số lớp ẩn tương ứng
+    return rmse_min, feature_hyper, rmse_loop, feature_train
 
 if uploaded_file is not None:
     file_name = uploaded_file.name
     df = LoadData(uploaded_file)
 
-
     # Chọn cột dự đoán & activation function
-
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
@@ -277,31 +297,53 @@ if uploaded_file is not None:
     if st.sidebar.button('Train Model', type="primary"):
         st.divider()
         st.header("Huấn Luyện Mô Hình")
-        #with st.spinner('Đang tiến hành training...'):
-        start_time = time.time()
-        rmse_traning = 1
-        feature_hyper = 0
-        if model == 'CNN':
-            for feature_step in range (feature_loop , 11):
-                m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate, feature_step = feature_step)
-                predict, actual, index, predict_scale, actua_scale, rmse_traning, feature_hyper = training_model(feature_step, start_time, train_time, m, rmse_traning, feature_hyper)
-            st.write("RMSE nhỏ nhất:" , rmse_traning, "Số vòng lặp lớp ẩn: ", feature_hyper)
-                
+        with st.spinner('Đang tiến hành training...'):
+            start_time = time.time()
+            rmse_min = 1
+            rmse_loop = []
+            feature_hyper = 0
+            feature_train = []
+            if model == 'CNN':
+                for feature_step in range (feature_loop , 11):
+                    #Truyền các thông số vào model
+                    m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate, feature_step = feature_step)
 
-        elif model == 'LSTM':
-            m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                    # Trả về giá trị rmse nhỏ nhất, số lớp ẩn tương ứng
+                    rmse_min, feature_hyper, rmse_loop, feature_train = hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train)
+          
+            elif model == 'LSTM':
+                m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+            
 
-        st.write("Training Complete!")
+            # In kết quả sau khi train
+            ## Số lỗi các vòng lặp và thông số vòng có lỗi nhỏ nhất
+            
+            # result_rmse_table = pd.DataFrame(
+            #     {"rmse": rmse_loop, "feauture": feature_train})
+            # st.table(result_rmse_table[:])
 
+            st.write("Thông số của vòng lặp có RMSE nhỏ nhất:")
+            result_train_table = pd.DataFrame(
+                {"epochs": [epochs], "batch_zize": [batch_size],"feature": [feature_hyper],"rmse": [rmse_min]})
+            st.table(result_train_table[:])  
+
+            #In thời gian training
+            train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
+            st.write(f"Thời gian huấn luyện {train_time}ms")
+            st.session_state.train_time = train_time
+            st.write("Training Complete!")
+
+#Load tập dữ liệu test
 st.header("Chọn tập dữ liệu tiến hành dự đoán")
 uploaded_file1 = st.file_uploader(
 "Chọn tệp dữ liệu test", type=["csv"],on_change=ClearCache)
 
-
+# Nếu đã upload file
 if uploaded_file1 is not None:
     file_name_test = uploaded_file1.name
     df_test = LoadData(uploaded_file1)
-
+    
+    #Chọn cột để dự đoán
     selected_predict_column_name_test = st.sidebar.selectbox(
     '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
@@ -319,22 +361,43 @@ if uploaded_file1 is not None:
     fig_test = MultipleLines.OneLine(eda, selected_column_name_test)
     st.plotly_chart(fig_test)
 
+    #Thực hiện nút test model
     st.sidebar.button('Test Model', type="primary", on_click= click_button_train)   
     if st.session_state.clicked_train:
-        try:
-            test = torch.load("./model/CNN_Model.pth")
-        
-            # predict, actual, index, predict_scale, actua_scale = eda.TestingModel(st.session_state.m)
+        # try:
+            # Load các paramter được lưu trong CNN_Model.pth
+            checkpoint = torch.load("./model/CNN_Model.pth")
+
+            test = checkpoint["model"]
+            epoch_train = checkpoint["epochs"]
+            feature_hyper_train = checkpoint["feature_loop"]
+            batch_size_train = checkpoint["batch_size"]
+            model_train = checkpoint["model"]
+
+            # Thể hiện các giá trị đã train lên bảng và dùng để test
+            train_table = pd.DataFrame(
+                {"epochs": [epoch_train],"feature": [feature_hyper_train], "batch_zize": [batch_size_train]})
+            st.table(train_table[:10])  
+
+            # Thực hiện test
             predict, actual, index, predict_scale, actua_scale = eda.TestingModel(test)
-                # Kiểm tra kết quả dự đoán và thực tế 
+
+            # Kiểm tra kết quả dự đoán và thực tế 
             result_test_table = pd.DataFrame(
-                {"Ngày" : index,"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
+                {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
             
-            st.session_state.resul_test_table = result_test_table
+            st.session_state.result_test_table = result_test_table
             st.table(result_test_table[:10])    
 
-            # Tính các lỗi 
-            metrics=Score(predict_scale,actua_scale)
+            # Tính lỗi của tập dữ liệu và in ra màn hình 
+            mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
+
+            metrics = pd.DataFrame({
+                "MAE": [mae],
+                "MSE": [mse],
+                "RMSE": [rmse],
+                "MAPE": [mape],
+                "CV_RMSE": [cv_rmse]})
             
             st.table(metrics)
 
@@ -343,14 +406,20 @@ if uploaded_file1 is not None:
             
             st.plotly_chart(mline)
 
+            csv_output = [result_test_table,metrics]
 
+            # list of sheet names
+            sheets = ['Result test','metrics','df2']  
+
+            #df_xlsx = dfs_tabs(csv_output, sheets, 'multi-test.xlsx')  
 
             #Download kết quả về file excel
-            download_button = st.download_button(label='📥 Download Current Result',
-                                data=to_excel(result_test_table),
-                                file_name= 'report.xlsx')
-        except:
-            st.write("Hiện tại chưa có Model!")
+            st.download_button(label='📥 Download Current Result',
+                                data=dfs_tabs(csv_output, sheets) ,
+                                file_name= 'multi-test.xlsx')
+            
+        # except:
+        #     st.write("Hiện tại chưa có Model!")
             #Lưu kết quả về thư mục hiện hành
             # st.button('Lưu dữ liệu Excel', type="secondary", on_click=click_button_save, key='save_button')
         # if st.clicked_save:

@@ -126,7 +126,13 @@ class EDA:
         return model
 
     def TestingModel(self, model): 
+
         predictions = model.predict(self.X_test, verbose=0)
+
+        print("X_test:", self.X_test)
+        print("y_test:", self.y_test)
+        print("index_test:", self.index_test)
+
         y_scaler = load(open('./static/y_scaler.pkl', 'rb'))
         rescaled_real_y = y_scaler.inverse_transform(self.y_test)
         rescaled_predicted_y = y_scaler.inverse_transform(predictions)
@@ -134,18 +140,14 @@ class EDA:
         return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
 
-    def RMSE():
-        mse = mean_squared_error(actua_scale, predict_scale)
-        rmse = np.sqrt(mse)
-        mse_traning.append(mse)
-        rmse_traning.append(rmse)
-        st.write("MSE:", mse)
-        st.write("RMSE:", rmse)
 
     def CNN_Model(self,input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001, feature_step=1 ) -> tf.keras.models.Model:
         model = tf.keras.Sequential()
+        
+        # Thêm lớp Convolutional 1D đầu tiên
         model.add(Conv1D(8, input_shape=(input_dim, feature_size), kernel_size=3, strides=1, padding='same', activation=activation))
 
+        # Thêm các lớp Convolutional 1D và MaxPooling1D tiếp theo
         for i in range (2,feature_step):
             if(i>=5):
                 model.add(Conv1D(128, kernel_size=1, strides=1, padding='same', activation=activation))
@@ -160,13 +162,18 @@ class EDA:
             # model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
             # model.add(Conv1D(128, kernel_size=1, strides=1, padding='same', activation=activation))
             # model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-            
+
+        # Hoàn thiện mô hình
         model.add(Flatten())
         model.add(Dense(220, use_bias=True))
         model.add(LeakyReLU())
         model.add(Dense(220, use_bias=True, activation=activation))
         model.add(Dense(units=output_dim))
+
+        # Thiết lập cấu hình cho mô hình để sẵn sàng cho quá trình huấn luyện.
         model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
+
+        # Bắt đầu huấn luyện mô hình, với đầu ra là kêt quả của mô hình : loss_values, accuracy_values, val_loss_values, val_accuracy_values
         model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.y_test),
                 verbose=2, shuffle=False)
 
