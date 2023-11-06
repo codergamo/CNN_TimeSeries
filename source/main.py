@@ -207,17 +207,18 @@ train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 90, 80, step=10)
 split_ratio = train_size/100
 
 # Chọn SL Epoch & SL Batch Size
-col3, col4, col5 = st.sidebar.columns(3)
+col3, col4 = st.sidebar.columns(2)
 with col3:
     epochs = st.number_input(
         '**Epoch**', value=3, step=1, min_value=1, on_change=ClearCache)
 with col4:
-    batch_size = st.number_input(
-        '**Batch Size**', value=100, step=1, min_value=1, on_change=ClearCache)
-with col5:
     feature_loop = st.number_input(
         '**Feature_Loop**', value=1, step=1, min_value=1, on_change=ClearCache)
 
+
+
+batch_size = st.sidebar.selectbox(
+    '**Batch Size**', (16, 32, 64, 128, 256, 512), on_change=ClearCache)
 
 
 # Chọn tốc độ học
@@ -406,17 +407,17 @@ if uploaded_file1 is not None:
             
             st.plotly_chart(mline)
 
-            csv_output = [result_test_table,metrics]
+            csv_output = [result_test_table,metrics, train_table]
 
             # list of sheet names
-            sheets = ['Result test','metrics','df2']  
+            sheets = ['Result test','metrics', 'train parameters']  
 
             #df_xlsx = dfs_tabs(csv_output, sheets, 'multi-test.xlsx')  
 
             #Download kết quả về file excel
             st.download_button(label='📥 Download Current Result',
                                 data=dfs_tabs(csv_output, sheets) ,
-                                file_name= 'multi-test.xlsx')
+                                file_name= 'Result-test.xlsx')
             
         # except:
         #     st.write("Hiện tại chưa có Model!")

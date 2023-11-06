@@ -40,7 +40,7 @@ class EDA:
         data.set_index(data.columns[0], inplace=True)
         data_old = data
         X_value = data[[feature]]
-        y_value = data[[column_names[0]]]
+        y_value = data[[feature]]
 
         X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value, scaler)
 
@@ -129,9 +129,9 @@ class EDA:
 
         predictions = model.predict(self.X_test, verbose=0)
 
-        print("X_test:", self.X_test)
-        print("y_test:", self.y_test)
-        print("index_test:", self.index_test)
+        # print("X_test:", self.X_test)
+        # print("y_test:", self.y_test)
+        # print("index_test:", self.index_test)
 
         y_scaler = load(open('./static/y_scaler.pkl', 'rb'))
         rescaled_real_y = y_scaler.inverse_transform(self.y_test)
