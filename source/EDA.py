@@ -20,11 +20,11 @@ import pickle
 
 class EDA:
 
-    def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio, scaler):
-          self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio, scaler)
+    def __init__(self, df ,n_steps_in, n_steps_out, feature, train_ratio, valid_ratio, scaler):
+          self.data, self.data_old, self.X_train, self.X_test, self.X_valid, self.y_train, self.y_test, self.y_valid, self.index_train, self.index_test, self.index_valid = self.CleanData(df, n_steps_in, n_steps_out, feature, train_ratio,valid_ratio, scaler)
         # self.yc_train, self.yc_test,
 
-    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8, scaler = 'Min-Max'):
+    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', train_ratio = 0.3, valid_ratio = 0.2, scaler = 'Min-Max'):
         
         data = data.dropna()
         column_names = tuple(data.drop(data.columns[0], axis=1).columns.values)
@@ -39,19 +39,21 @@ class EDA:
         data = data.sort_values(by=data.columns[0])
         data.set_index(data.columns[0], inplace=True)
         data_old = data
-        X_value = data[[feature]]
-        y_value = data[[feature]]
 
-        X_scale_dataset, y_scale_dataset = self.normalize_data(X_value, y_value, scaler)
+        X_train = data[[feature]]
+        y_train = data[[feature]]
+
+        X_scale_dataset, y_scale_dataset = self.normalize_data(X_train, y_train, scaler)
 
         # n_features = X_value.shape[1]
         X, y = self.get_X_y(X_scale_dataset, y_scale_dataset, n_steps_in, n_steps_out)
-        X_train, X_test, = self.split_train_test(X, split_ratio)
-        y_train, y_test, = self.split_train_test(y, split_ratio)
+        
+        X_train, X_valid, X_test = self.split_train_test(X, train_ratio, valid_ratio)
+        y_train, y_valid, y_test = self.split_train_test(y, train_ratio, valid_ratio)
         # yc_train, yc_test, = self.split_train_test(yc, split_ratio)
-        index_train, index_test, = self.predict_index(data, X_train, n_steps_in, n_steps_out)
+        index_train, index_valid, index_test = self.predict_index(data, X_train, X_valid, n_steps_in, n_steps_out)
 
-        return data, data_old, X_train, X_test, y_train, y_test, index_train, index_test
+        return data, data_old, X_train, X_test, X_valid, y_train, y_test, y_valid, index_train, index_test, index_valid
 
 
     def normalize_data(self, X_value, y_value, scaler = 'Min-Max'):
@@ -99,18 +101,30 @@ class EDA:
     # , np.array(yc)
 
 
-    def split_train_test(self, data, split_ratio = 0.8):
-        train_size = round(len(data) * split_ratio)
-        data_train = data[0:train_size]
-        data_test = data[train_size:]
 
-        return data_train, data_test
+    def split_train_test(self, data, train_ratio = 0.3, valid_ratio = 0.2):
+        train_size = round(len(data) * train_ratio)
+        valid_size = round(len(data) * valid_ratio)
 
-    def predict_index(self, dataset, X_train, n_steps_in, n_steps_out):
-        train_predict_index = dataset.iloc[n_steps_in : X_train.shape[0] + n_steps_in + n_steps_out - 1, :].index
-        test_predict_index = dataset.iloc[X_train.shape[0] + n_steps_in:, :].index
+        data_train = data[:train_size, :]
+        data_valid = data[train_size:train_size + valid_size, :]
+        data_test = data[train_size + valid_size:, :]
 
-        return train_predict_index, test_predict_index
+        return data_train, data_valid, data_test
+
+    def predict_index(self, dataset, X_train, X_valid, n_steps_in, n_steps_out):
+        train_predict_index = dataset.iloc[n_steps_in: X_train.shape[0] + n_steps_in + n_steps_out - 1, :].index
+    
+        valid_start_index = X_train.shape[0] + n_steps_in + n_steps_out # Define the starting index for the validation set
+        valid_end_index = valid_start_index + X_valid.shape[0]  # Define the ending index for the validation set
+        valid_predict_index = dataset.iloc[valid_start_index:valid_end_index, :].index
+        
+        test_start_index = valid_end_index  # Define the starting index for the test set
+        test_end_index = test_start_index + n_steps_out  # Define the ending index for the test set
+        test_predict_index = dataset.iloc[test_start_index:test_end_index, :].index
+        
+        return train_predict_index, valid_predict_index, test_predict_index
+    
 
     def LSTM_Model(self, input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
         model = Sequential()
@@ -127,17 +141,12 @@ class EDA:
 
     def TestingModel(self, model): 
 
-        predictions = model.predict(self.X_test, verbose=0)
-
-        # print("X_test:", self.X_test)
-        # print("y_test:", self.y_test)
-        # print("index_test:", self.index_test)
-
+        predictions = model.predict(self.X_valid)
         y_scaler = load(open('./static/y_scaler.pkl', 'rb'))
-        rescaled_real_y = y_scaler.inverse_transform(self.y_test)
+        rescaled_real_y = y_scaler.inverse_transform(self.y_valid)
         rescaled_predicted_y = y_scaler.inverse_transform(predictions)
 
-        return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
+        return rescaled_predicted_y, rescaled_real_y, self.index_valid, predictions, self.y_valid
     
 
 
@@ -174,7 +183,7 @@ class EDA:
         model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
 
         # Bắt đầu huấn luyện mô hình, với đầu ra là kêt quả của mô hình : loss_values, accuracy_values, val_loss_values, val_accuracy_values
-        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.y_test),
+        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_valid, self.y_valid),
                 verbose=2, shuffle=False)
 
 

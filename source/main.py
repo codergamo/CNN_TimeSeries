@@ -203,8 +203,10 @@ with col2:
                             step=1, min_value=1, on_change=ClearCache)
 
 # Chọn tỉ lệ chia tập train/test
-train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 90, 80, step=10)
-split_ratio = train_size/100
+train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 70, 30, step=10)
+valid_size = st.sidebar.slider('**Tỉ lệ Validation**', 10, 90 - train_size, 20, step=10)
+train_ratio = train_size/100
+valid_ratio = valid_size/100
 
 # Chọn SL Epoch & SL Batch Size
 col3, col4 = st.sidebar.columns(2)
@@ -278,7 +280,7 @@ if uploaded_file is not None:
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio, scaler = scaler)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -349,7 +351,7 @@ if uploaded_file1 is not None:
     '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
     # Tạo đối tượng EDA
-    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, split_ratio = split_ratio, scaler = scaler)
+    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu test ' + file_name_test)
     st.write(df_test)
@@ -373,20 +375,23 @@ if uploaded_file1 is not None:
             epoch_train = checkpoint["epochs"]
             feature_hyper_train = checkpoint["feature_loop"]
             batch_size_train = checkpoint["batch_size"]
-            model_train = checkpoint["model"]
 
             # Thể hiện các giá trị đã train lên bảng và dùng để test
+            st.write("****Các siêu tham số được dùng để dự đoán:****")
             train_table = pd.DataFrame(
                 {"epochs": [epoch_train],"feature": [feature_hyper_train], "batch_zize": [batch_size_train]})
             st.table(train_table[:10])  
 
             # Thực hiện test
             predict, actual, index, predict_scale, actua_scale = eda.TestingModel(test)
-
+            st.write("****So sánh kết quả dự đoán và thực tế:****")
             # Kiểm tra kết quả dự đoán và thực tế 
             result_test_table = pd.DataFrame(
                 {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
             
+            mse_test = (predict_scale-actua_scale)**2
+            result_test_table['MSE'] = mse_test
+
             st.session_state.result_test_table = result_test_table
             st.table(result_test_table[:10])    
 
@@ -399,7 +404,7 @@ if uploaded_file1 is not None:
                 "RMSE": [rmse],
                 "MAPE": [mape],
                 "CV_RMSE": [cv_rmse]})
-            
+            st.write("****Thông số lỗi sau khi dự đoán:****")
             st.table(metrics)
 
             # Biểu đồ so sánh
@@ -412,7 +417,6 @@ if uploaded_file1 is not None:
             # list of sheet names
             sheets = ['Result test','metrics', 'train parameters']  
 
-            #df_xlsx = dfs_tabs(csv_output, sheets, 'multi-test.xlsx')  
 
             #Download kết quả về file excel
             st.download_button(label='📥 Download Current Result',
@@ -421,12 +425,7 @@ if uploaded_file1 is not None:
             
         # except:
         #     st.write("Hiện tại chưa có Model!")
-            #Lưu kết quả về thư mục hiện hành
-            # st.button('Lưu dữ liệu Excel', type="secondary", on_click=click_button_save, key='save_button')
-        # if st.clicked_save:
-        #     # csv = result_test_table
-        #     # csv.to_excel('./output/data.xlsx', engine='xlsxwriter')  
-        #     st.success("Xuất dữ liệu thành công!!")
+
     
 
             
