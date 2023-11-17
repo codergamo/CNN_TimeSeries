@@ -12,13 +12,8 @@ from sklearn.metrics import mean_squared_error
 from tqdm import tqdm
 from pickle import dump
 from pickle import load
-from matplotlib import pyplot
 import torch 
-import time
-import os
-import pickle
-from sklearn.model_selection import RandomizedSearchCV
-from scikeras.wrappers import KerasRegressor
+
 
 class EDA:
 
@@ -127,16 +122,16 @@ class EDA:
 
         return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
-    def train_model(self, model):
-        history = model.fit(self.X_train, self.y_train, validation =(self.X_test, self.y_test))
-        return history
-        #return model.fit(self.X_test, self.y_test)
+    def train_model(self, model , epochs, batch_size):
+        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.X_test),
+                verbose=2, shuffle=False)
+        return model
 
     def CNN_Model(self,input_dim=10, output_dim=1, activation='relu', learning_rate=0.0001):
         model = Sequential()
         
         # Thêm lớp Convolutional 1D đầu tiên
-        model.add(Conv1D(8, input_shape=(1, input_dim), kernel_size=3, strides=1, padding='same', activation=activation))
+        model.add(Conv1D(8, input_shape=(input_dim, 1), kernel_size=3, strides=1, padding='same', activation=activation))
 
         # Thêm các lớp Convolutional 1D và MaxPooling1D tiếp theo
         model.add(Conv1D(16, kernel_size=3, strides=1, padding='same', activation=activation))

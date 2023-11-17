@@ -1,36 +1,24 @@
 import time
-import os
 import io
-import xlwings as xlw
 import math 
 import torch
-import xlsxwriter
 import win32com.client
-import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import numpy as np
 from EDA import EDA
 from Multiple_Lines import MultipleLines
 import streamlit as st
-import plotly.graph_objs as go
 import tensorflow as tf
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, SimpleRNN, GRU, LSTM
-from keras.callbacks import Callback
 from streamlit.logger import get_logger
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, make_scorer
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import KFold
 from kerastuner.tuners import RandomSearch
-import xlsxwriter
-from openpyxl.styles import Font
 from sklearn.model_selection import RandomizedSearchCV
 from scikeras.wrappers import KerasRegressor
-
+tf.get_logger().setLevel('ERROR')
 
 st.set_page_config(page_title="Forecast Time Series",page_icon=":bar_chart:",layout="centered")
 
@@ -295,15 +283,17 @@ if uploaded_file is not None:
 
             param_dist = {
             'epochs': range(1, 101),
-            'batch_size': [1, 2, 4, 8, 16, 32, 64]
+            'batch_size': [16, 32, 64, 128, 256]
             }
             if mod == 'CNN':
                 # for feature_step in range (feature_loop , 11):
                     #Truyền các thông số vào model
                     
-                m = KerasRegressor(model = eda.CNN_Model, input_dim = input_dim , output_dim = output_dim, activation=activation, learning_rate=learning_rate)
+                model = eda.CNN_Model(input_dim=input_dim, output_dim=output_dim, activation=activation, learning_rate=learning_rate)
+                m = KerasRegressor(model=model)
                 random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error', error_score='raise')
 
+                X_train = np.reshape(eda.X_train, (eda.X_train.shape[0], 1, eda.X_train.shape[1]))
                 
 
                 random_search.fit(eda.X_train, eda.y_train)
@@ -322,12 +312,35 @@ if uploaded_file is not None:
 
             st.write("Best Parameters:", random_search.best_params_)
 
-            #In thời gian training
-            train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
-            st.write(f"Thời gian huấn luyện {train_time}ms")
-            st.session_state.train_time = train_time
-            st.write("Training Complete!")
+            #In thời gian optimize
+            optimize_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
+            st.write(f"Thời gian Optimize {optimize_time}ms")
+            st.session_state.optimize_time = optimize_time
+            st.write("Optimize Complete!")
 
+            with st.spinner("Đang huấn luyện mô hình với bộ siêu tham số..."):
+                # Lấy bộ tham số tốt nhất từ quá trình tối ưu hóa
+                best_params = random_search.best_params_
+                if mod == 'CNN':
+                    m1 = eda.CNN_Model(input_dim=input_dim, output_dim=output_dim, activation=activation, learning_rate=learning_rate)
+                elif mod == 'LSTM':
+                    m1 = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+            
+                model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
+
+                st.session_state.model_training = model_training
+
+                #Lưu các paramter vào file CNN_Model.pth
+                torch.save({
+                'model': model_training,
+                'epochs': best_params['epochs'],
+                'batch_size': best_params['batch_size']
+                }, "./model/CNN_Model.pth")
+
+                train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
+                st.write(f"Thời gian Training {train_time}ms")
+                st.session_state.train_time = train_time
+                st.write("Training Complete!")
 #Load tập dữ liệu test
 st.header("Chọn tập dữ liệu tiến hành dự đoán")
 uploaded_file1 = st.file_uploader(
@@ -359,24 +372,22 @@ if uploaded_file1 is not None:
     #Thực hiện nút test model
     st.sidebar.button('Test Model', type="primary", on_click= click_button_train)   
     if st.session_state.clicked_train:
-        try:
+        #try:
             # Load các paramter được lưu trong CNN_Model.pth
             checkpoint = torch.load("./model/CNN_Model.pth")
 
-            test = checkpoint["model"]
             epoch_train = checkpoint["epochs"]
-            feature_hyper_train = checkpoint["feature_loop"]
             batch_size_train = checkpoint["batch_size"]
             model_train = checkpoint["model"]
 
             # Thể hiện các giá trị đã train lên bảng và dùng để test
             st.write("****Các siêu tham số được dùng để dự đoán:****")
             train_table = pd.DataFrame(
-                {"epochs": [epoch_train],"feature": [feature_hyper_train], "batch_zize": [batch_size_train]})
+                {"epochs": [epoch_train], "batch_zize": [batch_size_train]})
             st.table(train_table[:10])  
 
             # Thực hiện test
-            predict, actual, index, predict_scale, actua_scale = eda.TestingModel(test)
+            predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
             st.write("****So sánh kết quả dự đoán và thực tế:****")
             # Kiểm tra kết quả dự đoán và thực tế 
             result_test_table = pd.DataFrame(
@@ -417,8 +428,8 @@ if uploaded_file1 is not None:
                                 data=dfs_tabs(csv_output, sheets) ,
                                 file_name= 'Result-test.xlsx')
             
-        except:
-            st.error("****Hiện tại chưa có Model!****")
+        #except:
+            #st.error("****Hiện tại chưa có Model!****")
             #Lưu kết quả về thư mục hiện hàn
             # st.button('Lưu dữ liệu Excel', type="secondary", on_click=click_button_save, key='save_button')
         # if st.clicked_save:
