@@ -28,6 +28,8 @@ from sklearn.model_selection import KFold
 from kerastuner.tuners import RandomSearch
 import xlsxwriter
 from openpyxl.styles import Font
+from sklearn.model_selection import RandomizedSearchCV
+from scikeras.wrappers import KerasRegressor
 
 
 st.set_page_config(page_title="Forecast Time Series",page_icon=":bar_chart:",layout="centered")
@@ -114,10 +116,8 @@ def to_excel(df):
     worksheet1.set_column('A:A', None, format1) 
     writer.close()
     processed_data = output.getvalue()
-    st.download_button(label='📥 Download Current Result',
-                                data=processed_data,
-                                file_name= 'report.xlsx')
-    # return processed_data
+
+    return processed_data
 
 # Hàm đánh giá
 @st.cache_data
@@ -160,18 +160,6 @@ def dfs_tabs(df_list, sheet_list):
     processed_data = output.getvalue()
     return processed_data
 
-def to_excel(df):
-    output = io.BytesIO()
-    writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, index=False, sheet_name='Sheet1')
-    workbook = writer.book
-    worksheet = writer.sheets['Sheet1']
-    format1 = workbook.add_format({'num_format': '0.00'}) 
-    worksheet.set_column('A:A', None, format1)  
-    writer.close()
-    processed_data = output.getvalue()
-    
-    return processed_data
 if 'clicked_train' not in st.session_state:
     st.session_state.clicked_train = False
 
@@ -187,7 +175,7 @@ def click_button_save():
 #--------------------------------------
 # Sidebar
 # Chọn mô hình
-model = st.sidebar.selectbox(
+mod = st.sidebar.selectbox(
     "Chọn mô hình:",
     ["CNN", "LSTM"],
     on_change=ClearCache).lstrip('*').rstrip('*')
@@ -203,10 +191,8 @@ with col2:
                             step=1, min_value=1, on_change=ClearCache)
 
 # Chọn tỉ lệ chia tập train/test
-train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 70, 30, step=10)
-valid_size = st.sidebar.slider('**Tỉ lệ Validation**', 10, 90 - train_size, 20, step=10)
-train_ratio = train_size/100
-valid_ratio = valid_size/100
+train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 90, 80, step=10)
+split_ratio = train_size/100
 
 # Chọn SL Epoch & SL Batch Size
 col3, col4 = st.sidebar.columns(2)
@@ -280,7 +266,7 @@ if uploaded_file is not None:
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio, scaler = scaler)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -302,33 +288,39 @@ if uploaded_file is not None:
         st.header("Huấn Luyện Mô Hình")
         with st.spinner('Đang tiến hành training...'):
             start_time = time.time()
-            rmse_min = 1
-            rmse_loop = []
-            feature_hyper = 0
-            feature_train = []
-            if model == 'CNN':
-                for feature_step in range (feature_loop , 11):
+            # rmse_min = 1
+            # rmse_loop = []
+            # feature_hyper = 0
+            # feature_train = []
+
+            param_dist = {
+            'epochs': range(1, 101),
+            'batch_size': [1, 2, 4, 8, 16, 32, 64]
+            }
+            if mod == 'CNN':
+                # for feature_step in range (feature_loop , 11):
                     #Truyền các thông số vào model
-                    m = eda.CNN_Model(input_dim , output_dim , feature_size = 1, epochs=epochs , batch_size=batch_size, activation=activation, learning_rate=learning_rate, feature_step = feature_step)
+                    
+                m = KerasRegressor(model = eda.CNN_Model, input_dim = input_dim , output_dim = output_dim, activation=activation, learning_rate=learning_rate)
+                random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error', error_score='raise')
+
+                
+
+                random_search.fit(eda.X_train, eda.y_train)
 
                     # Trả về giá trị rmse nhỏ nhất, số lớp ẩn tương ứng
-                    rmse_min, feature_hyper, rmse_loop, feature_train = hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train)
+                    # rmse_min, feature_hyper, rmse_loop, feature_train = hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train)
           
-            elif model == 'LSTM':
+            elif mod == 'LSTM':
                 m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
             
 
-            # In kết quả sau khi train
-            ## Số lỗi các vòng lặp và thông số vòng có lỗi nhỏ nhất
-            
-            # result_rmse_table = pd.DataFrame(
-            #     {"rmse": rmse_loop, "feauture": feature_train})
-            # st.table(result_rmse_table[:])
+            # st.write("Thông số của vòng lặp có RMSE nhỏ nhất:")
+            # result_train_table = pd.DataFrame(
+            #     {"epochs": [epochs], "batch_zize": [batch_size],"feature": [feature_hyper],"rmse": [rmse_min]})
+            # st.table(result_train_table[:])  
 
-            st.write("Thông số của vòng lặp có RMSE nhỏ nhất:")
-            result_train_table = pd.DataFrame(
-                {"epochs": [epochs], "batch_zize": [batch_size],"feature": [feature_hyper],"rmse": [rmse_min]})
-            st.table(result_train_table[:])  
+            st.write("Best Parameters:", random_search.best_params_)
 
             #In thời gian training
             train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
@@ -351,7 +343,7 @@ if uploaded_file1 is not None:
     '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
     # Tạo đối tượng EDA
-    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
+    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, split_ratio = split_ratio, scaler = scaler)
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu test ' + file_name_test)
     st.write(df_test)
@@ -367,7 +359,7 @@ if uploaded_file1 is not None:
     #Thực hiện nút test model
     st.sidebar.button('Test Model', type="primary", on_click= click_button_train)   
     if st.session_state.clicked_train:
-        # try:
+        try:
             # Load các paramter được lưu trong CNN_Model.pth
             checkpoint = torch.load("./model/CNN_Model.pth")
 
@@ -375,6 +367,7 @@ if uploaded_file1 is not None:
             epoch_train = checkpoint["epochs"]
             feature_hyper_train = checkpoint["feature_loop"]
             batch_size_train = checkpoint["batch_size"]
+            model_train = checkpoint["model"]
 
             # Thể hiện các giá trị đã train lên bảng và dùng để test
             st.write("****Các siêu tham số được dùng để dự đoán:****")
@@ -388,10 +381,10 @@ if uploaded_file1 is not None:
             # Kiểm tra kết quả dự đoán và thực tế 
             result_test_table = pd.DataFrame(
                 {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
-            
+            #Tính lỗi trên từng datapoint để xuất ra exel 
             mse_test = (predict_scale-actua_scale)**2
             result_test_table['MSE'] = mse_test
-
+            
             st.session_state.result_test_table = result_test_table
             st.table(result_test_table[:10])    
 
@@ -417,15 +410,21 @@ if uploaded_file1 is not None:
             # list of sheet names
             sheets = ['Result test','metrics', 'train parameters']  
 
+            #df_xlsx = dfs_tabs(csv_output, sheets, 'multi-test.xlsx')  
 
             #Download kết quả về file excel
             st.download_button(label='📥 Download Current Result',
                                 data=dfs_tabs(csv_output, sheets) ,
                                 file_name= 'Result-test.xlsx')
             
-        # except:
-        #     st.write("Hiện tại chưa có Model!")
-
+        except:
+            st.error("****Hiện tại chưa có Model!****")
+            #Lưu kết quả về thư mục hiện hàn
+            # st.button('Lưu dữ liệu Excel', type="secondary", on_click=click_button_save, key='save_button')
+        # if st.clicked_save:
+        #     # csv = result_test_table
+        #     # csv.to_excel('./output/data.xlsx', engine='xlsxwriter')  
+        #     st.success("Xuất dữ liệu thành công!!")
     
 
             
