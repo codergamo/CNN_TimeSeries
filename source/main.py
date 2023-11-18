@@ -88,25 +88,6 @@ def CV_RMSE(predict, actual):
 
 # Function to save all dataframes to one single excel
 
-def to_excel(df):
-    output = io.BytesIO()
-    writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df[0].to_excel(writer, index=False, sheet_name='Result Test')
-    df[1].to_excel(writer, index=False, sheet_name='Metrics')
-    workbook = writer.book
-    worksheet1 = writer.book
-    worksheet = writer.sheets['Result Test']
-    worksheet1 = writer.sheets['Metrics']
-
-    format1 = workbook.add_format({'num_format': '0.00'}) 
-
-    worksheet.set_column('A:A', None, format1) 
-    worksheet1.set_column('A:A', None, format1) 
-    writer.close()
-    processed_data = output.getvalue()
-
-    return processed_data
-
 # Hàm đánh giá
 @st.cache_data
 def Score(predict, actual):
@@ -179,22 +160,10 @@ with col2:
                             step=1, min_value=1, on_change=ClearCache)
 
 # Chọn tỉ lệ chia tập train/test
-train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 90, 80, step=10)
-split_ratio = train_size/100
-
-# Chọn SL Epoch & SL Batch Size
-col3, col4 = st.sidebar.columns(2)
-with col3:
-    epochs = st.number_input(
-        '**Epoch**', value=3, step=1, min_value=1, on_change=ClearCache)
-with col4:
-    feature_loop = st.number_input(
-        '**Feature_Loop**', value=1, step=1, min_value=1, on_change=ClearCache)
-
-
-
-batch_size = st.sidebar.selectbox(
-    '**Batch Size**', (16, 32, 64, 128, 256, 512), on_change=ClearCache)
+train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 70, 30, step=10)
+valid_size = st.sidebar.slider('**Tỉ lệ Validation**', 10, 90 - train_size, 20, step=10)
+train_ratio = train_size/100
+valid_ratio = valid_size/100
 
 
 # Chọn tốc độ học
@@ -216,35 +185,6 @@ uploaded_file = st.file_uploader(
     "Chọn tệp dữ liệu", type=["csv"], on_change=ClearCache)
 
 
-# Tìm ra thông số cho mô hình train có số lỗi rmse nhỏ nhất và lưu vào thư mục
-def hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train):  
-
-    # Test model --> Trả về giá trị dự đoán-thực tế rescale , ngày, giá trị dự đoán - thực tế scale
-    predict, actual, index, predict_scale, actua_scale = eda.TestingModel(m)
-
-    mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
-    # Thực hiện tính lỗi với mỗi giá trị đã được scale
-
-    rmse_loop.append(rmse)
-    feature_train.append(feature_step)
-
-    # Nếu giá trị rmse cũ lớn hơn rmse hiện tại thì lưu giá trị hiện tại
-    if rmse < rmse_min:
-        rmse_min = rmse
-        feature_hyper = feature_step
-        # Lưu model vào state hiện tại
-        st.session_state.m = m
-
-        #Lưu các paramter vào file CNN_Model.pth
-        torch.save({
-        'model': m,
-        'epochs': epochs,
-        'batch_size': batch_size,
-        'feature_loop': feature_hyper
-        }, "./model/CNN_Model.pth")
-
-    # Trả về giá trị dự đoán-thực tế rescale , ngày, giá trị dự đoán - thực tế scale, rmse nhỏ nhất và số lớp ẩn tương ứng
-    return rmse_min, feature_hyper, rmse_loop, feature_train
 
 if uploaded_file is not None:
     file_name = uploaded_file.name
@@ -254,7 +194,7 @@ if uploaded_file is not None:
     selected_predict_column_name = st.sidebar.selectbox(
         '**Chọn cột để dự đoán:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
-    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, split_ratio = split_ratio, scaler = scaler)
+    eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
 
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu ' + file_name)
@@ -302,7 +242,7 @@ if uploaded_file is not None:
                     # rmse_min, feature_hyper, rmse_loop, feature_train = hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train)
           
             elif mod == 'LSTM':
-                m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=32, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
             
 
             # st.write("Thông số của vòng lặp có RMSE nhỏ nhất:")
@@ -324,7 +264,7 @@ if uploaded_file is not None:
                 if mod == 'CNN':
                     m1 = eda.CNN_Model(input_dim=input_dim, output_dim=output_dim, activation=activation, learning_rate=learning_rate)
                 elif mod == 'LSTM':
-                    m1 = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=epochs, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                    m1 = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=32, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
             
                 model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
 
@@ -356,7 +296,7 @@ if uploaded_file1 is not None:
     '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
     # Tạo đối tượng EDA
-    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, split_ratio = split_ratio, scaler = scaler)
+    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu test ' + file_name_test)
     st.write(df_test)
@@ -390,6 +330,7 @@ if uploaded_file1 is not None:
             predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
             st.write("****So sánh kết quả dự đoán và thực tế:****")
             # Kiểm tra kết quả dự đoán và thực tế 
+            
             result_test_table = pd.DataFrame(
                 {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
             #Tính lỗi trên từng datapoint để xuất ra exel 

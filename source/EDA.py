@@ -17,10 +17,12 @@ import torch
 
 class EDA:
 
-    def __init__(self, df ,n_steps_in, n_steps_out, feature, split_ratio, scaler):
-          self.data, self.data_old, self.X_train, self.X_test, self.y_train, self.y_test, self.index_train, self.index_test = self.CleanData(df, n_steps_in, n_steps_out, feature, split_ratio, scaler)
+    def __init__(self, df ,n_steps_in, n_steps_out, feature, train_ratio, valid_ratio , scaler):
+          self.data, self.data_old, self.X_train, self.X_test, self.X_valid,\
+            self.y_train, self.y_test, self.y_valid,\
+              self.index_train, self.index_test, self.index_valid = self.CleanData(df, n_steps_in, n_steps_out, feature, train_ratio, valid_ratio, scaler)
 
-    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', split_ratio = 0.8, scaler = 'Min-Max'):
+    def CleanData(self, data, n_steps_in = 10, n_steps_out = 1, feature = 'Price', train_ratio = 0.7, valid_ratio = 0.2, scaler = 'Min-Max'):
         
         data = data.dropna()
         column_names = tuple(data.drop(data.columns[0], axis=1).columns.values)
@@ -38,12 +40,12 @@ class EDA:
 
         
         X, y = self.get_X_y(X_scale_dataset, y_scale_dataset, n_steps_in, n_steps_out)
-        X_train, X_test, = self.split_train_test(X, split_ratio)
-        y_train, y_test, = self.split_train_test(y, split_ratio)
+        X_train, X_valid, X_test, = self.split_train_test(X, train_ratio, valid_ratio)
+        y_train, y_valid, y_test, = self.split_train_test(y, train_ratio, valid_ratio)
 
-        index_train, index_test, = self.predict_index(data, X_train, n_steps_in, n_steps_out)
+        index_train, index_valid, index_test, = self.predict_index(data, X_train, X_valid, n_steps_in, n_steps_out)
 
-        return data, data_old, X_train, X_test, y_train, y_test, index_train, index_test
+        return data, data_old, X_train, X_test, X_valid, y_train, y_test, y_valid, index_train, index_test, index_valid
 
 
     def normalize_data(self, X_value, y_value, scaler = 'Min-Max'):
@@ -86,18 +88,32 @@ class EDA:
 
         return np.array(X), np.array(y)
 
-    def split_train_test(self, data, split_ratio = 0.8):
-        train_size = round(len(data) * split_ratio)
-        data_train = data[0:train_size]
-        data_test = data[train_size:]
+    def split_train_test(self, data, train_ratio = 0.7, valid_ratio = 0.2):
 
-        return data_train, data_test
+        total_size = len(data)
+        train_size = int(total_size * train_ratio)
+        valid_size = int(total_size * valid_ratio)
+        test_size = total_size - train_size - valid_size
 
-    def predict_index(self, dataset, X_train, n_steps_in, n_steps_out):
-        train_predict_index = dataset.iloc[n_steps_in : X_train.shape[0] + n_steps_in + n_steps_out - 1, :].index
-        test_predict_index = dataset.iloc[X_train.shape[0] + n_steps_in:, :].index
+        data_train, data_valid, data_test = (
+        data[:train_size, :],
+        data[train_size:train_size + valid_size, :],
+        data[train_size + valid_size: train_size + valid_size + test_size, :])
 
-        return train_predict_index, test_predict_index
+        return data_train, data_valid, data_test
+
+    def predict_index(self, dataset, X_train, X_valid, n_steps_in, n_steps_out):
+        train_predict_index = dataset.iloc[n_steps_in: X_train.shape[0] + n_steps_in + n_steps_out - 1, :].index
+    
+        valid_start_index = X_train.shape[0] + n_steps_in + n_steps_out # Define the starting index for the validation set
+        valid_end_index = valid_start_index + X_valid.shape[0] -1  # Define the ending index for the validation set
+        valid_predict_index = dataset.iloc[valid_start_index:valid_end_index, :].index
+        
+        test_start_index = valid_end_index  # Define the starting index for the test set
+        test_predict_index = dataset.iloc[test_start_index:, :].index
+
+
+        return train_predict_index, valid_predict_index, test_predict_index
 
     def LSTM_Model(self, input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
         model = Sequential()
@@ -123,7 +139,7 @@ class EDA:
         return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
     def train_model(self, model , epochs, batch_size):
-        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.X_test),
+        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_valid, self.X_valid),
                 verbose=2, shuffle=False)
         return model
 
