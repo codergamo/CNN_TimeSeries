@@ -1,18 +1,8 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, FunctionTransformer
-from tensorflow.keras.layers import Dense, LSTM, Conv1D, LeakyReLU, Flatten, MaxPooling1D
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras import Model
-from kerastuner.tuners import RandomSearch
-import tensorflow as tf
-from sklearn.metrics import mean_squared_error
-from tqdm import tqdm
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from pickle import dump
 from pickle import load
-import torch 
 
 
 class EDA:
@@ -48,6 +38,7 @@ class EDA:
         return data, data_old, X_train, X_test, X_valid, y_train, y_test, y_valid, index_train, index_test, index_valid
 
 
+    #Chuan hoa du lieu
     def normalize_data(self, X_value, y_value, scaler = 'Min-Max'):
         if scaler == 'Min-Max':
             X_scaler = MinMaxScaler()
@@ -58,11 +49,7 @@ class EDA:
             X_scaler = StandardScaler()
             y_scaler = StandardScaler()
 
-        else:
-            # X_scaler = StandardScaler()
-            # y_scaler = StandardScaler()
-            # Khởi tạo trình tạo FunctionTransformer
-            
+        else:          
             return X_value.to_numpy(), y_value.to_numpy()
 
         X_scaler.fit(X_value)
@@ -88,6 +75,8 @@ class EDA:
 
         return np.array(X), np.array(y)
 
+
+    #Chia tap du lieu train/validation/test
     def split_train_test(self, data, train_ratio = 0.7, valid_ratio = 0.2):
 
         total_size = len(data)
@@ -102,6 +91,7 @@ class EDA:
 
         return data_train, data_valid, data_test
 
+    #Chia index(ngay) tuong ung voi gia tri cua train/valid/test
     def predict_index(self, dataset, X_train, X_valid, n_steps_in, n_steps_out):
         train_predict_index = dataset.iloc[n_steps_in: X_train.shape[0] + n_steps_in + n_steps_out - 1, :].index
     
@@ -115,19 +105,7 @@ class EDA:
 
         return train_predict_index, valid_predict_index, test_predict_index
 
-    def LSTM_Model(self, input_dim=10, output_dim=1, feature_size=1, epochs=50, batch_size=32, activation='relu', learning_rate=0.0001) -> tf.keras.models.Model:
-        model = Sequential()
-        model.add(LSTM(units=128, return_sequences=True, input_shape=(input_dim, feature_size), activation=activation))
-        model.add(LSTM(units=64, activation=activation))
-        model.add(Dense(32, activation=activation))
-        model.add(Dense(units=output_dim))
-        model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
-        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_test, self.y_test),
-                verbose=2, shuffle=False)
-        torch.save(model,'./model/LSTM_Model.pth')
-
-        return model
-
+    #Test model
     def TestingModel(self, model): 
 
         predictions = model.predict(self.X_test, verbose=0)
@@ -138,34 +116,8 @@ class EDA:
 
         return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
     
+    #Train model
     def train_model(self, model , epochs, batch_size):
         model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_valid, self.X_valid),
                 verbose=2, shuffle=False)
-        return model
-
-    def CNN_Model(self,input_dim=10, output_dim=1, activation='relu', learning_rate=0.0001):
-        model = Sequential()
-        
-        # Thêm lớp Convolutional 1D đầu tiên
-        model.add(Conv1D(8, input_shape=(input_dim, 1), kernel_size=3, strides=1, padding='same', activation=activation))
-
-        # Thêm các lớp Convolutional 1D và MaxPooling1D tiếp theo
-        model.add(Conv1D(16, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(32, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(64, kernel_size=3, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-        model.add(Conv1D(128, kernel_size=1, strides=1, padding='same', activation=activation))
-        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-            
-        # Hoàn thiện mô hình
-        model.add(Flatten())
-        model.add(Dense(220, use_bias=True))
-        model.add(LeakyReLU())
-        model.add(Dense(220, use_bias=True, activation=activation))
-        model.add(Dense(units=output_dim))
-
-        # Thiết lập cấu hình cho mô hình để sẵn sàng cho quá trình huấn luyện.
-        model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
         return model

@@ -2,22 +2,19 @@ import time
 import io
 import math 
 import torch
-import win32com.client
-from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import numpy as np
 from EDA import EDA
 from Multiple_Lines import MultipleLines
 import streamlit as st
 import tensorflow as tf
-from streamlit.logger import get_logger
-from sklearn.model_selection import train_test_split, KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error, make_scorer
-from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import KFold
-from kerastuner.tuners import RandomSearch
 from sklearn.model_selection import RandomizedSearchCV
 from scikeras.wrappers import KerasRegressor
+from tensorflow.keras.layers import Dense, LSTM, Conv1D, LeakyReLU, Flatten, MaxPooling1D
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import Adam
 tf.get_logger().setLevel('ERROR')
 
 st.set_page_config(page_title="Forecast Time Series",page_icon=":bar_chart:",layout="centered")
@@ -62,15 +59,14 @@ def LoadData(uploaded_file):
     df = pd.read_csv(uploaded_file)
     return df
 
-
-
+#Tính CV_RMSE
+@st.cache_data
 def CV_RMSE(predict, actual):
     # Số lượng fold (chẳng hạn, 5-fold cross-validation)
     num_folds = 5
 
     # Khởi tạo K-fold cross-validation
     kf = KFold(n_splits=num_folds)
-
     # Tạo danh sách để lưu kết quả RMSE từ từng fold
     rmse_scores = []
 
@@ -86,32 +82,17 @@ def CV_RMSE(predict, actual):
     average_rmse = np.mean(rmse_scores)
     return average_rmse
 
-# Function to save all dataframes to one single excel
-
 # Hàm đánh giá
 @st.cache_data
 def Score(predict, actual):
     mae = mean_absolute_error(actual, predict)
     mse = mean_squared_error(actual, predict)
     rmse = np.sqrt(mse)
-    mape = mean_absolute_percentage_error(actual, predict)
+    mape = np.mean(np.abs((actual - predict) / predict))
     cv_rmse = CV_RMSE(predict,actual)
     return mae, mse, rmse ,mape ,cv_rmse
-#Tính CV_RMSE
-@st.cache_data
-def CV_RMSE(predict,actual):
-    num_folds = 5
-    rmse_scores = []
-    kf = KFold(n_splits=num_folds)
-    for train_index, test_index in kf.split(actual):
-        actual_test, predicted_test = actual[test_index], predict[test_index]
-    
-        mse = mean_squared_error(actual_test, predicted_test)
-        rmse = np.sqrt(mse)
-        
-        rmse_scores.append(rmse)
-    average_rmse = np.mean(rmse_scores)
-    return average_rmse
+
+
 
 # Xóa dữ liệu lưu trong streamlit
 def ClearCache():
@@ -160,20 +141,13 @@ with col2:
                             step=1, min_value=1, on_change=ClearCache)
 
 # Chọn tỉ lệ chia tập train/test
-train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 70, 30, step=10)
+train_size = st.sidebar.slider('**Tỉ lệ training**', 10, 70, 70, step=10)
 valid_size = st.sidebar.slider('**Tỉ lệ Validation**', 10, 90 - train_size, 20, step=10)
 train_ratio = train_size/100
 valid_ratio = valid_size/100
 
-
-# Chọn tốc độ học
-default_value = 0.0001
-learning_rate = st.sidebar.number_input("**Learning Rate**", value=default_value, step=0.00005, min_value=0.0000, format="%.5f")
-
-
-
 activation = st.sidebar.selectbox(
-    '**Chọn Activation funcion**', ('ReLU', 'sigmoid', 'tanh'), on_change=ClearCache)
+    '**Chọn Activation funcion**', ('ReLU', 'LeakyReLU', 'tanh'), on_change=ClearCache)
 
 
 scaler = st.sidebar.selectbox(
@@ -184,6 +158,35 @@ st.header("Chọn tập dữ liệu tiến hành huấn luyện")
 uploaded_file = st.file_uploader(
     "Chọn tệp dữ liệu", type=["csv"], on_change=ClearCache)
 
+
+def LSTM_Model(input_dim=10, output_dim=1, units =32, learning_rate=0.0001) -> tf.keras.models.Model:
+        model = Sequential()
+        model.add(LSTM(units=units, return_sequences=True, input_shape=(input_dim, 1), activation='relu'))
+        model.add(LSTM(units=units, activation='relu'))
+        model.add(Dense(32, activation='relu'))
+        model.add(Dense(units=output_dim))
+        model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
+        return model
+
+def CNN_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, activation = 'relu'):
+        model = Sequential()
+        
+        # Thêm lớp Convolutional 1D đầu tiên
+        model.add(Conv1D(units, input_shape=(input_dim, 1), kernel_size=3, strides=1, padding='same', activation=activation))
+       
+        model.add(Conv1D(units, kernel_size=3, strides=1, padding='same', activation=activation))
+        model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
+            
+        # Hoàn thiện mô hình
+        model.add(Flatten())
+        model.add(Dense(220, use_bias=True))
+        model.add(LeakyReLU())
+        model.add(Dense(220, use_bias=True, activation=activation))
+        model.add(Dense(units=output_dim))
+
+        # Thiết lập cấu hình cho mô hình để sẵn sàng cho quá trình huấn luyện.
+        model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
+        return model
 
 
 if uploaded_file is not None:
@@ -211,45 +214,27 @@ if uploaded_file is not None:
     df_target = df[selected_column_name]
     
     # Training
-    if st.sidebar.button('Train Model', type="primary"):
+    if st.sidebar.button('Optimize Model', type="primary"):
         st.divider()
-        st.header("Huấn Luyện Mô Hình")
-        with st.spinner('Đang tiến hành training...'):
+        st.header("Optimize Mô Hình")
+        with st.spinner('Đang tiến hành Optimize...'):
             start_time = time.time()
-            # rmse_min = 1
-            # rmse_loop = []
-            # feature_hyper = 0
-            # feature_train = []
 
             param_dist = {
+            'units': [16, 32, 64, 128, 256],
             'epochs': range(1, 101),
-            'batch_size': [16, 32, 64, 128, 256]
+            'batch_size': [16, 32, 64, 128, 256],
+            'learning_rate': [0.0001]
             }
             if mod == 'CNN':
-                # for feature_step in range (feature_loop , 11):
-                    #Truyền các thông số vào model
-                    
-                model = eda.CNN_Model(input_dim=input_dim, output_dim=output_dim, activation=activation, learning_rate=learning_rate)
-                m = KerasRegressor(model=model)
-                random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error', error_score='raise')
+                m = KerasRegressor(model = CNN_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation)
 
-                X_train = np.reshape(eda.X_train, (eda.X_train.shape[0], 1, eda.X_train.shape[1]))
-                
-
-                random_search.fit(eda.X_train, eda.y_train)
-
-                    # Trả về giá trị rmse nhỏ nhất, số lớp ẩn tương ứng
-                    # rmse_min, feature_hyper, rmse_loop, feature_train = hyper_paramter(m, rmse_min, rmse_loop, feature_step, feature_hyper, feature_train)
-          
             elif mod == 'LSTM':
-                m = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=32, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                m =  KerasRegressor(model=LSTM_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation)
+                
             
-
-            # st.write("Thông số của vòng lặp có RMSE nhỏ nhất:")
-            # result_train_table = pd.DataFrame(
-            #     {"epochs": [epochs], "batch_zize": [batch_size],"feature": [feature_hyper],"rmse": [rmse_min]})
-            # st.table(result_train_table[:])  
-
+            random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error')
+            random_search.fit(eda.X_valid, eda.y_valid)
             st.write("Best Parameters:", random_search.best_params_)
 
             #In thời gian optimize
@@ -257,27 +242,34 @@ if uploaded_file is not None:
             st.write(f"Thời gian Optimize {optimize_time}ms")
             st.session_state.optimize_time = optimize_time
             st.write("Optimize Complete!")
-
+            
+    # if st.sidebar.button('Train Model'):
+    #     st.divider()
+    #     st.header("Huấn luyện Mô Hình")
+            start_time_train = time.time()
             with st.spinner("Đang huấn luyện mô hình với bộ siêu tham số..."):
                 # Lấy bộ tham số tốt nhất từ quá trình tối ưu hóa
+                
                 best_params = random_search.best_params_
                 if mod == 'CNN':
-                    m1 = eda.CNN_Model(input_dim=input_dim, output_dim=output_dim, activation=activation, learning_rate=learning_rate)
+                    m1 = CNN_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
                 elif mod == 'LSTM':
-                    m1 = eda.LSTM_Model(input_dim , output_dim , feature_size = 1, epochs=32, batch_size=batch_size, activation=activation, learning_rate=learning_rate)
+                    m1 = LSTM_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
             
                 model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
 
                 st.session_state.model_training = model_training
 
-                #Lưu các paramter vào file CNN_Model.pth
+                #Lưu các paramter vào file Model.pth
                 torch.save({
                 'model': model_training,
+                'units': best_params['units'],
                 'epochs': best_params['epochs'],
-                'batch_size': best_params['batch_size']
-                }, "./model/CNN_Model.pth")
+                'batch_size': best_params['batch_size'],
+                'learning_rate': best_params['learning_rate']
+                }, "./model/Model.pth")
 
-                train_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
+                train_time = "{:.4f}".format((time.time() * 1000) - (start_time_train* 1000))
                 st.write(f"Thời gian Training {train_time}ms")
                 st.session_state.train_time = train_time
                 st.write("Training Complete!")
@@ -296,7 +288,7 @@ if uploaded_file1 is not None:
     '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
     # Tạo đối tượng EDA
-    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
+    eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = 0, valid_ratio = 0, scaler = scaler)
     # Thông tin tập dữ liệu
     st.subheader('Tập dữ liệu test ' + file_name_test)
     st.write(df_test)
@@ -312,18 +304,20 @@ if uploaded_file1 is not None:
     #Thực hiện nút test model
     st.sidebar.button('Test Model', type="primary", on_click= click_button_train)   
     if st.session_state.clicked_train:
-        #try:
+        try:
             # Load các paramter được lưu trong CNN_Model.pth
-            checkpoint = torch.load("./model/CNN_Model.pth")
+            checkpoint = torch.load("./model/Model.pth")
 
+            unit_train = checkpoint["units"]
             epoch_train = checkpoint["epochs"]
             batch_size_train = checkpoint["batch_size"]
+            LR_train = checkpoint["learning_rate"]
             model_train = checkpoint["model"]
 
             # Thể hiện các giá trị đã train lên bảng và dùng để test
             st.write("****Các siêu tham số được dùng để dự đoán:****")
             train_table = pd.DataFrame(
-                {"epochs": [epoch_train], "batch_zize": [batch_size_train]})
+                {"units": [unit_train],"epochs": [epoch_train], "batch_zize": [batch_size_train], "learning_rate": [LR_train]})
             st.table(train_table[:10])  
 
             # Thực hiện test
@@ -337,8 +331,10 @@ if uploaded_file1 is not None:
             mse_test = (predict_scale-actua_scale)**2
             result_test_table['MSE'] = mse_test
             
+            result_test_table['MSE'] = result_test_table['MSE'].apply(lambda x: format(x, '.10f'))
+
             st.session_state.result_test_table = result_test_table
-            st.table(result_test_table[:10])    
+            st.write(result_test_table)    
 
             # Tính lỗi của tập dữ liệu và in ra màn hình 
             mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
@@ -362,21 +358,13 @@ if uploaded_file1 is not None:
             # list of sheet names
             sheets = ['Result test','metrics', 'train parameters']  
 
-            #df_xlsx = dfs_tabs(csv_output, sheets, 'multi-test.xlsx')  
-
             #Download kết quả về file excel
             st.download_button(label='📥 Download Current Result',
                                 data=dfs_tabs(csv_output, sheets) ,
-                                file_name= 'Result-test.xlsx')
-            
-        #except:
-            #st.error("****Hiện tại chưa có Model!****")
-            #Lưu kết quả về thư mục hiện hàn
-            # st.button('Lưu dữ liệu Excel', type="secondary", on_click=click_button_save, key='save_button')
-        # if st.clicked_save:
-        #     # csv = result_test_table
-        #     # csv.to_excel('./output/data.xlsx', engine='xlsxwriter')  
-        #     st.success("Xuất dữ liệu thành công!!")
+                                file_name= 'Result-test.xlsx')           
+        except:
+            st.error("****Hiện tại chưa có Model!****")
+
     
 
             
