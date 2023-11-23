@@ -118,6 +118,6 @@ class EDA:
     
     #Train model
     def train_model(self, model , epochs, batch_size):
-        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_valid, self.X_valid),
+        model.fit(self.X_train, self.y_train, epochs=epochs, batch_size=batch_size, validation_data=(self.X_valid, self.y_valid),
                 verbose=2, shuffle=False)
         return model

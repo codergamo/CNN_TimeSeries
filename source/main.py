@@ -118,9 +118,11 @@ def click_button_train():
 
 if 'clicked_save' not in st.session_state:
     st.session_state.clicked_save = False
-
+if 'display_info' not in st.session_state:
+        st.session_state.display_info = {}
 def click_button_save():
     st.session_state.clicked_save = True
+    
 
 #--------------------------------------
 # Sidebar
@@ -170,24 +172,29 @@ def LSTM_Model(input_dim=10, output_dim=1, units =32, learning_rate=0.0001) -> t
 
 def CNN_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, activation = 'relu'):
         model = Sequential()
-        
         # Thêm lớp Convolutional 1D đầu tiên
-        model.add(Conv1D(units, input_shape=(input_dim, 1), kernel_size=3, strides=1, padding='same', activation=activation))
-       
+        model.add(Conv1D(units, input_shape=(input_dim, 1), kernel_size=3, strides=1, padding='same', activation=activation)) 
         model.add(Conv1D(units, kernel_size=3, strides=1, padding='same', activation=activation))
         model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
-            
         # Hoàn thiện mô hình
         model.add(Flatten())
         model.add(Dense(220, use_bias=True))
         model.add(LeakyReLU())
         model.add(Dense(220, use_bias=True, activation=activation))
         model.add(Dense(units=output_dim))
-
         # Thiết lập cấu hình cho mô hình để sẵn sàng cho quá trình huấn luyện.
         model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
         return model
-
+def CNN_Retrain(input_dim=10, output_dim=1):
+    # define model
+    model = Sequential()
+    model.add(Conv1D(filters=16, kernel_size=3, activation='relu', input_shape=(input_dim,1)))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Flatten())
+    model.add(Dense(10, activation='relu'))
+    model.add(Dense(output_dim))
+    model.compile(loss='mse', optimizer='adam')
+    return model
 
 if uploaded_file is not None:
     file_name = uploaded_file.name
@@ -195,7 +202,7 @@ if uploaded_file is not None:
 
     # Chọn cột dự đoán & activation function
     selected_predict_column_name = st.sidebar.selectbox(
-        '**Chọn cột để dự đoán:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
+        '**Chọn cột để tiến hành training:**', tuple(df.drop(df.columns[0],axis = 1).columns.values), on_change=ClearCache)
     # Tạo đối tượng EDA
     eda = EDA(df = df, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name, train_ratio = train_ratio, valid_ratio = valid_ratio, scaler = scaler)
 
@@ -213,13 +220,13 @@ if uploaded_file is not None:
 
     df_target = df[selected_column_name]
     
-    # Training
+    # Optimize Model
     if st.sidebar.button('Optimize Model', type="primary"):
         st.divider()
         st.header("Optimize Mô Hình")
         with st.spinner('Đang tiến hành Optimize...'):
             start_time = time.time()
-
+            
             param_dist = {
             'units': [16, 32, 64, 128, 256],
             'epochs': range(1, 101),
@@ -235,44 +242,82 @@ if uploaded_file is not None:
             
             random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error')
             random_search.fit(eda.X_valid, eda.y_valid)
+            #Lưu tham số sau khi optimize
+            torch.save({
+            'model': random_search,
+            'best_params':random_search.best_params_
+            }, "./model/Optimize_Model.pth")
             st.write("Best Parameters:", random_search.best_params_)
 
             #In thời gian optimize
             optimize_time = "{:.4f}".format((time.time() * 1000) - (start_time * 1000))
             st.write(f"Thời gian Optimize {optimize_time}ms")
             st.session_state.optimize_time = optimize_time
+            st.session_state.display_info['best_params'] = random_search.best_params_
             st.write("Optimize Complete!")
-            
-    # if st.sidebar.button('Train Model'):
-    #     st.divider()
-    #     st.header("Huấn luyện Mô Hình")
-            start_time_train = time.time()
-            with st.spinner("Đang huấn luyện mô hình với bộ siêu tham số..."):
-                # Lấy bộ tham số tốt nhất từ quá trình tối ưu hóa
-                
-                best_params = random_search.best_params_
-                if mod == 'CNN':
-                    m1 = CNN_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
-                elif mod == 'LSTM':
-                    m1 = LSTM_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
-            
-                model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
+    #Traing Model        
+    if st.sidebar.button('Train Model'):
+        st.divider()
+        st.header("Huấn luyện Mô Hình")
+        st.subheader('Mô hình đã optimize')
+        #Load siêu tham số sau khi optimize
+        model_op = torch.load("./model/Optimize_Model.pth")
+        st.session_state.display_info = model_op['best_params']
+        st.write(st.session_state.display_info)
+        start_time_train = time.time()
+        with st.spinner("Đang huấn luyện mô hình với bộ siêu tham số..."):
+            # Lấy bộ tham số tốt nhất từ quá trình optimize
+            best_params =  model_op['best_params']
+            if mod == 'CNN':
+                m1 = CNN_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
+            elif mod == 'LSTM':
+                m1 = LSTM_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
+            #Tiến hành training
+            model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
 
-                st.session_state.model_training = model_training
+            st.session_state.model_training = model_training
 
-                #Lưu các paramter vào file Model.pth
-                torch.save({
-                'model': model_training,
-                'units': best_params['units'],
-                'epochs': best_params['epochs'],
-                'batch_size': best_params['batch_size'],
-                'learning_rate': best_params['learning_rate']
-                }, "./model/Model.pth")
+            #Lưu các paramter vào file Model.pth
+            torch.save({
+            'model': model_training,
+            'units': best_params['units'],
+            'epochs': best_params['epochs'],
+            'batch_size': best_params['batch_size'],
+            'learning_rate': best_params['learning_rate']
+            }, "./model/Model.pth")
 
-                train_time = "{:.4f}".format((time.time() * 1000) - (start_time_train* 1000))
-                st.write(f"Thời gian Training {train_time}ms")
-                st.session_state.train_time = train_time
-                st.write("Training Complete!")
+            train_time = "{:.4f}".format((time.time() * 1000) - (start_time_train* 1000))
+            st.write(f"Thời gian Training {train_time}ms")
+            st.session_state.train_time = train_time
+            st.write("Training Complete!")
+    #Retain Model
+    if st.sidebar.button('Retrain Model'):
+        st.divider()
+        st.header("Huấn luyện Mô Hình")
+        start_time_train = time.time()
+        with st.spinner("Đang retrain mô hình với tập dữ liệu..."):
+            if mod == 'CNN':
+                 m=CNN_Retrain(input_dim=input_dim,output_dim=output_dim)
+            #Siêu tham số 
+            epochs, batch_size = 20, 4
+            #Tiến hành train
+            model_training = eda.train_model(m,epochs=epochs, batch_size=batch_size)
+            st.session_state.model_training = model_training
+
+            #Lưu các paramter vào file Model.pth
+            torch.save({
+            'model': model_training,
+            'units': 16,
+            'epochs': epochs,
+            'batch_size': batch_size,
+            'learning_rate': None
+            }, "./model/Model.pth")
+            #In thời gian 
+            train_time = "{:.4f}".format((time.time() * 1000) - (start_time_train* 1000))
+            st.write(f"Thời gian Training {train_time}ms")
+            st.session_state.train_time = train_time
+            st.write("Training Complete!")
+
 #Load tập dữ liệu test
 st.header("Chọn tập dữ liệu tiến hành dự đoán")
 uploaded_file1 = st.file_uploader(
@@ -285,7 +330,7 @@ if uploaded_file1 is not None:
     
     #Chọn cột để dự đoán
     selected_predict_column_name_test = st.sidebar.selectbox(
-    '**Chọn cột để dự đoán Test:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
+    '**Chọn cột để dự đoán:**', tuple(df_test.drop(df_test.columns[0],axis = 1).columns.values), on_change=ClearCache)
 
     # Tạo đối tượng EDA
     eda = EDA(df = df_test, n_steps_in = input_dim, n_steps_out = output_dim, feature=selected_predict_column_name_test, train_ratio = 0, valid_ratio = 0, scaler = scaler)
@@ -304,7 +349,7 @@ if uploaded_file1 is not None:
     #Thực hiện nút test model
     st.sidebar.button('Test Model', type="primary", on_click= click_button_train)   
     if st.session_state.clicked_train:
-        try:
+        # try:
             # Load các paramter được lưu trong CNN_Model.pth
             checkpoint = torch.load("./model/Model.pth")
 
@@ -324,14 +369,14 @@ if uploaded_file1 is not None:
             predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
             st.write("****So sánh kết quả dự đoán và thực tế:****")
             # Kiểm tra kết quả dự đoán và thực tế 
-            
-            result_test_table = pd.DataFrame(
-                {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist()})
-            #Tính lỗi trên từng datapoint để xuất ra exel 
             mse_test = (predict_scale-actua_scale)**2
-            result_test_table['MSE'] = mse_test
+            result_test_table = pd.DataFrame(
+                {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist(), "MSE": mse_test.tolist()})
+            #Tính lỗi trên từng datapoint để xuất ra exel 
             
-            result_test_table['MSE'] = result_test_table['MSE'].apply(lambda x: format(x, '.10f'))
+            # result_test_table['MSE'] = mse_test
+            
+            # result_test_table['MSE'] = result_test_table['MSE'].apply(lambda x: format(x, '.10f'))
 
             st.session_state.result_test_table = result_test_table
             st.write(result_test_table)    
@@ -349,8 +394,8 @@ if uploaded_file1 is not None:
             st.table(metrics)
 
             # Biểu đồ so sánh
-            mline = MultipleLines.MultipLines(predict,actual, index)
-            
+            compare_date = st.selectbox("****Chọn ngày để so sánh kết quả dự đoán****",list(range(1,output_dim+1)))
+            mline = MultipleLines.MultipLines(predict[:,compare_date-1], actual[:,compare_date-1], index)
             st.plotly_chart(mline)
 
             csv_output = [result_test_table,metrics, train_table]
@@ -362,13 +407,5 @@ if uploaded_file1 is not None:
             st.download_button(label='📥 Download Current Result',
                                 data=dfs_tabs(csv_output, sheets) ,
                                 file_name= 'Result-test.xlsx')           
-        except:
-            st.error("****Hiện tại chưa có Model!****")
-
-    
-
-            
-            
-            
-            
-            
+        # except:
+        #     st.error("****Hiện tại chưa có Model!****")
