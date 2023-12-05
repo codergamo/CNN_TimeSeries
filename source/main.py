@@ -51,6 +51,7 @@ metrics = None
 learning_rate = None
 generator = None
 discriminator = None
+model_training = None
 
 # ------------------------- Function ------------------------- #
 # load data.csv
@@ -332,6 +333,19 @@ if uploaded_file is not None:
             st.session_state.train_time = train_time
             st.write("Training Complete!")
 
+    if model_training!=None:
+        st.subheader("Trọng số của từng lớp")
+        for layer in model_training.layers:
+            if len(layer.get_weights()) > 0:
+                st.write(f"Layer {layer.name} - Weights:")
+                weights = layer.get_weights()
+                for i, w in enumerate(weights):
+                    st.write(f"Weight {i + 1}:")
+                    w_flattened = np.array(w).flatten()
+                    df = pd.DataFrame(w_flattened)
+                    st.write(df)
+                st.write("\n")
+
 #Load tập dữ liệu test
 st.header("Chọn tập dữ liệu tiến hành dự đoán")
 uploaded_file1 = st.file_uploader(
@@ -381,19 +395,6 @@ if uploaded_file1 is not None:
 
             # Thực hiện test
             predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
-            st.write("****So sánh kết quả dự đoán và thực tế:****")
-            # Kiểm tra kết quả dự đoán và thực tế 
-            mse_test = (predict_scale-actua_scale)**2
-            result_test_table = pd.DataFrame(
-                {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist(), "MSE": mse_test.tolist()})
-            #Tính lỗi trên từng datapoint để xuất ra exel 
-            
-            # result_test_table['MSE'] = mse_test
-            
-            # result_test_table['MSE'] = result_test_table['MSE'].apply(lambda x: format(x, '.10f'))
-
-            st.session_state.result_test_table = result_test_table
-            st.write(result_test_table)    
 
             # Tính lỗi của tập dữ liệu và in ra màn hình 
             mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
@@ -406,10 +407,24 @@ if uploaded_file1 is not None:
                 "CV_RMSE": [cv_rmse]})
             st.write("****Thông số lỗi sau khi dự đoán:****")
             st.table(metrics)
+            st.write("****So sánh kết quả dự đoán và thực tế:****")
+            #Tính lỗi trên từng datapoint để xuất ra exel 
+            mse_test = (predict_scale-actua_scale)**2
+            # Kiểm tra kết quả dự đoán và thực tế 
+            if scaler != "Dữ liệu gốc":
+                result_test_table = pd.DataFrame(
+                    {"Ngày" : index.tolist(),"Giá trị dự đoán": predict.tolist(), "Giá trị thực": actual.tolist(), "MSE": mse_test.tolist()})
+            else:
+                result_test_table = pd.DataFrame(
+                    {"Ngày" : index.tolist(),"Giá trị dự đoán": predict_scale.tolist(), "Giá trị thực": actua_scale.tolist(), "MSE": mse_test.tolist()})
+            st.session_state.result_test_table = result_test_table
+            st.write(result_test_table)    
+
+
 
             # Biểu đồ so sánh
             compare_date = st.selectbox("****Chọn ngày để so sánh kết quả dự đoán****",list(range(1,output_dim+1)))
-            mline = MultipleLines.MultipLines(predict[:,compare_date-1], actual[:,compare_date-1], index)
+            mline = MultipleLines.MultipLines(predict_scale[:,compare_date-1], actua_scale[:,compare_date-1], index)
             st.plotly_chart(mline)
 
             csv_output = [result_test_table,metrics, train_table]
