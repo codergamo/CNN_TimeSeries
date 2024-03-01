@@ -1,0 +1,17 @@
+OS: Windows 10/11
+Python: 3.11.6 
+
+MỞ Command Promt TẠI THƯ MỤC NÀY VÀ THỰC HIỆN CÁC BƯỚC SAU
+
+BƯỚC 1: Tải thư viện cần thiết để khởi chạy đề tài
+-- Tại vị trí thư mục source gõ câu lệnh sau vào Command Promt
+pip install -r requirements.txt
+
+BƯỚC 2: Dùng streamlit để chạy file index.py trong local
+-- Tại vị trí thư mục source gõ câu lệnh sau vào Command Promt
+streamlit run index.py
+-- Nếu Streamlit bắt nhập email thì để trống
+
+-- streamlit sẽ chạy ở địa chỉ: http://localhost:8501
+-- Nếu không thể thực hiện bước 2 thì có thể truy cập trang web sau: 
+https://polynomialclassifier-quoctien.streamlit.app/

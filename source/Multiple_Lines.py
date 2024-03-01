@@ -1,9 +1,9 @@
-import matplotlib as plt
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
 
 class MultipleLines:
+    # Vẽ biểu đồ 2 đường dự đoán - thực tế
     def MultipLines(predict, actual, index_test):
         dfpre = pd.DataFrame({'Dự đoán': predict.flatten()})
         dfpre = dfpre.set_index(index_test)
@@ -22,6 +22,8 @@ class MultipleLines:
                            )
         fig.update_traces(patch={"line": {"width": 1, "dash": 'dot'}})
         return fig
+    
+    # Vẽ biểu đồ một đường
     def OneLine(data, selected_column_name):
         trace = go.Scatter(x=data.data_old.index ,y=data.data_old[selected_column_name], mode='lines', name='Giá cổ phiếu')
         layout = go.Layout(
