@@ -126,6 +126,19 @@ class EDA:
         return train_predict_index, valid_predict_index, test_predict_index
 
     #Test model
+    def TestingModel_para(self, model): 
+
+        # Kiểm thử trên tập giá trị test và trả về kết quả dự đoán - thực tế
+        predictions = model.predict([self.X_test,self.X_test], verbose=0)
+
+        y_scaler = load(open('./static/y_scaler.pkl', 'rb'))
+        rescaled_real_y = y_scaler.inverse_transform(self.y_test)
+        rescaled_predicted_y = y_scaler.inverse_transform(predictions)
+
+        # dự đoán đã được chuyển đổi về đơn vị ban đầu, dữ liệu thực tế đã được chuyển đổi về đơn vị ban đầu, 
+        # các chỉ mục của dữ liệu kiểm tra, kết quả dự đoán trước khi chuyển đổi, dữ liệu thực tế trước khi chuyển đổi.
+        return rescaled_predicted_y, rescaled_real_y, self.index_test, predictions, self.y_test
+    
     def TestingModel(self, model): 
 
         # Kiểm thử trên tập giá trị test và trả về kết quả dự đoán - thực tế
@@ -143,5 +156,10 @@ class EDA:
     def train_model(self, model , epochs, batch_size):
         model.fit(self.X_train, self.y_train, epochs=epochs, \
                   batch_size=batch_size, validation_data=(self.X_valid, self.y_valid),
+                verbose=2, shuffle=False)
+        return model
+    def train_model_para(self, model , epochs, batch_size):
+        model.fit([self.X_train,self.X_train], self.y_train, epochs=epochs, \
+                  batch_size=batch_size, validation_data=([self.X_valid,self.X_valid], self.y_valid),
                 verbose=2, shuffle=False)
         return model

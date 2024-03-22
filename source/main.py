@@ -12,8 +12,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolu
 from sklearn.model_selection import KFold
 from sklearn.model_selection import RandomizedSearchCV
 from scikeras.wrappers import KerasRegressor
-from tensorflow.keras.layers import Dense, LSTM, Conv1D, LeakyReLU, Flatten, MaxPooling1D, SimpleRNN, GRU, TimeDistributed, RepeatVector
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM, Conv1D, LeakyReLU, Flatten, MaxPooling1D, SimpleRNN, GRU, RepeatVector, Input, Dropout, Concatenate
+from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.optimizers import Adam
 tf.get_logger().setLevel('ERROR')
 
@@ -89,7 +89,7 @@ def Score(predict, actual):
     mae = mean_absolute_error(actual, predict)
     mse = mean_squared_error(actual, predict)
     rmse = np.sqrt(mse)
-    mape = np.mean(np.abs((actual - predict) / predict))
+    mape = np.mean(np.abs((actual - predict) / predict)) # bỏ
     cv_rmse = CV_RMSE(predict,actual)
     return mae, mse, rmse ,mape ,cv_rmse
 
@@ -130,7 +130,7 @@ def click_button_save():
 # Chọn mô hình
 mod = st.sidebar.selectbox(
     "Chọn mô hình:",
-    ["CNN", "LSTM","RNN", "GRU", "CNN-LSTM"],
+    ["CNN", "LSTM","RNN", "GRU", "CNN-LSTM", "LSTM-CNN", "CNN-LSTM_Para"],
     on_change=ClearCache).lstrip('*').rstrip('*')
 
 # Chọn ngày để dự đoán
@@ -210,17 +210,86 @@ def CNN_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, ac
 
 def CNN_LSTM_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, activation = 'relu') -> tf.keras.models.Model:
     model = Sequential()
+    #CNN
     model.add(Conv1D(units, input_shape=(input_dim, 1), \
                      kernel_size=3, strides=1, padding='same', activation=activation)) 
     model.add(Conv1D(filters=units, kernel_size=3, strides=1, padding='same', activation=activation))
     model.add(MaxPooling1D(pool_size=2,strides=2, padding='same'))
     model.add(Flatten())
+    #tạo ra một tensor mới có hình dạng (None, out, units/filter)
     model.add(RepeatVector(output_dim))
-    model.add(LSTM(200, activation=activation, return_sequences=True))
-    model.add(TimeDistributed(Dense(220, use_bias=True, activation=activation)))
-    model.add(TimeDistributed(Dense(units=output_dim)))
+    #LSTM
+    model.add(LSTM(units=units, return_sequences=True, activation=activation))
+    model.add(LSTM(units=units, activation=activation))
+    # fully connection
+    model.add(Dense(32, activation=activation))
+    model.add(Dense(units=output_dim))
     model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
     return model
+
+def LSTM_CNN_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, activation = 'relu') -> tf.keras.models.Model:
+    model = Sequential()
+
+    #LSTM
+    model.add(LSTM(units=units, return_sequences=True, input_shape=(input_dim, 1), activation=activation))
+    model.add(LSTM(units=units, activation=activation))
+    
+    #tạo ra một tensor mới có hình dạng (None, out, units/filter)
+    model.add(RepeatVector(output_dim))
+
+    #CNN
+    model.add(Conv1D(units, kernel_size=3, strides=1, padding='same', activation=activation))
+    model.add(MaxPooling1D(pool_size=2,strides=2, padding='same')) 
+    model.add(Flatten())
+    # fully connection
+    model.add(Dense(32, activation=activation))
+    model.add(Dense(units=output_dim))
+    model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
+    return model
+
+
+#Paralel model
+def CNN_LSTM_Para_Model(input_dim=10, output_dim=1, units = 32, learning_rate = 0.0001, activation = 'relu') -> tf.keras.models.Model:
+    
+    # Khởi tạo mô hình CNN
+    cnn_model = Sequential()
+    cnn_model.add(Conv1D(units, input_shape=(input_dim, 1), \
+                     kernel_size=3, strides=1, padding='same', activation=activation))
+    cnn_model.add(MaxPooling1D(pool_size=2, strides=2, padding='same'))
+    cnn_model.add(Flatten())
+    cnn_model.add(Dense(32, activation=activation))
+    
+    # Khởi tạo mô hình LSTM
+    lstm_model = Sequential()
+    lstm_model.add(LSTM(units=units, return_sequences=True, input_shape=(input_dim, 1), activation=activation))
+    lstm_model.add(LSTM(units=units, activation=activation))
+    lstm_model.add(Dense(32, activation=activation))
+
+    # Kết hợp các mô hình lại với nhau
+    combined_input = Concatenate()([cnn_model.output, lstm_model.output])
+
+    # Lớp Dense cuối cùng của mô hình kết hợp
+    final_output = Dense(units=output_dim)(combined_input)
+    # # Tạo mô hình song song
+    model = Model(inputs=[cnn_model.input, lstm_model.input], outputs=final_output)
+
+
+    # Compile mô hình với optimizer và hàm loss
+    model.compile(optimizer=Adam(learning_rate=learning_rate), loss='mse')
+    return model
+
+def calculate_omega(model):
+    omega = 0
+    # Lặp qua từng layer trong mô hình
+    for layer in model.layers:
+        # Lấy trọng số của layer nếu có
+        weights = layer.get_weights()
+        if len(weights) > 0:
+            # Nếu layer có trọng số, cộng tổng bình phương các trọng số vào omega
+            for w in weights:
+                omega += np.sum(w**2)
+    return omega
+
 
 if uploaded_file is not None:
     file_name = uploaded_file.name
@@ -270,9 +339,15 @@ if uploaded_file is not None:
                 m =  KerasRegressor(model=GRU_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation) 
             elif mod == 'CNN-LSTM':
                 m =  KerasRegressor(model=CNN_LSTM_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation) 
+            elif mod == 'LSTM-CNN':
+                m =  KerasRegressor(model=LSTM_CNN_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation)
+            elif mod == 'CNN-LSTM_Para': 
+                m =  KerasRegressor(model=CNN_LSTM_Para_Model, input_dim=input_dim, output_dim=output_dim, units =32, learning_rate = 0.0001, activation= activation)
 
-
+            
             random_search = RandomizedSearchCV(m, param_distributions=param_dist, cv=3, n_iter=10, n_jobs=-1, scoring='neg_mean_squared_error')
+            
+            
             random_search.fit(eda.X_valid, eda.y_valid)
             #Lưu tham số sau khi optimize
             torch.save({
@@ -310,15 +385,24 @@ if uploaded_file is not None:
                 m1 = GRU_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
             elif mod == 'CNN-LSTM':
                 m1 = CNN_LSTM_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
+            elif mod == 'LSTM-CNN':
+                m1 = LSTM_CNN_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
+            elif mod == 'CNN-LSTM_Para':
+                m1 = CNN_LSTM_Para_Model(input_dim=input_dim, output_dim=output_dim, units = best_params['units'], learning_rate = best_params['learning_rate'], activation= activation)
+                
 
             #Tiến hành training
-            model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
+            if mod == 'CNN-LSTM_Para':
+                model_training = eda.train_model_para(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
+            else:
+                model_training = eda.train_model(m1,epochs=best_params['epochs'], batch_size=best_params['batch_size'])
 
             st.session_state.model_training = model_training
 
             #Lưu các paramter vào file Model.pth
             torch.save({
             'model': model_training,
+            'model_name': mod,
             'units': best_params['units'],
             'epochs': best_params['epochs'],
             'batch_size': best_params['batch_size'],
@@ -385,6 +469,7 @@ if uploaded_file1 is not None:
             batch_size_train = checkpoint["batch_size"]
             LR_train = checkpoint["learning_rate"]
             model_train = checkpoint["model"]
+            model_name = checkpoint["model_name"]
 
             # Thể hiện các giá trị đã train lên bảng và dùng để test
             st.write("****Các siêu tham số được dùng để dự đoán:****")
@@ -393,7 +478,11 @@ if uploaded_file1 is not None:
             st.table(train_table[:10])  
 
             # Thực hiện test
-            predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
+            if model_name == 'CNN-LSTM_Para':
+                predict, actual, index, predict_scale, actua_scale = eda.TestingModel_para(model_train)
+                omega = calculate_omega(model_train)
+            else:
+                predict, actual, index, predict_scale, actua_scale = eda.TestingModel(model_train)
 
             #In thời gian 
             test_time = "{:.4f}".format((time.time()) - (start_time_test))
@@ -401,15 +490,25 @@ if uploaded_file1 is not None:
 
             # Tính lỗi của tập dữ liệu và in ra màn hình 
             mae, mse, rmse, mape, cv_rmse = Score(predict_scale,actua_scale)
-
-            metrics = pd.DataFrame({
-                "MAE": [mae],
-                "MSE": [mse],
-                "RMSE": [rmse],
-                "MAPE": [mape],
-                "CV_RMSE": [cv_rmse]})
-            st.write("****Thông số lỗi sau khi dự đoán:****")
-            st.table(metrics)
+            if model_name == 'CNN-LSTM_Para':
+                metrics = pd.DataFrame({
+                    "MAE": [mae],
+                    "MSE": [mse],
+                    "RMSE": [rmse],
+                    "MAPE": [mape],
+                    "CV_RMSE": [cv_rmse],
+                    "omega": [omega]})
+                st.write("****Thông số lỗi sau khi dự đoán:****")
+                st.table(metrics)
+            else:
+                metrics = pd.DataFrame({
+                    "MAE": [mae],
+                    "MSE": [mse],
+                    "RMSE": [rmse],
+                    "MAPE": [mape],
+                    "CV_RMSE": [cv_rmse]})
+                st.write("****Thông số lỗi sau khi dự đoán:****")
+                st.table(metrics)
             st.write("****So sánh kết quả dự đoán và thực tế:****")
             #Tính lỗi trên từng datapoint để xuất ra exel 
             mse_test = (predict_scale-actua_scale)**2
